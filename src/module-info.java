@@ -8,5 +8,5 @@ module pluginTemplate {
 	requires net.dv8tion.jda;
 	requires java.base;
 
-	provides net.foxgenesis.watame.plugin.IPlugin with net.foxgenesis.watame.filescanner.PluginTemplate;
+	provides net.foxgenesis.watame.plugin.IPlugin with net.foxgenesis.watame.filescanner.FileScannerPlugin;
 }

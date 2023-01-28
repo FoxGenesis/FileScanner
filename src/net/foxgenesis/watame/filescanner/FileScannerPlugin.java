@@ -24,7 +24,7 @@ import net.foxgenesis.watame.plugin.PluginProperties;
  *
  */
 @PluginProperties(name = "FileScanner", description = "", version = "1.0.0")
-public class PluginTemplate implements IPlugin {
+public class FileScannerPlugin implements IPlugin {
 	private static final int LOUD_VIDEO = 1, MALWARE_DETECTED = 2;
 	/**
 	 * Logger
