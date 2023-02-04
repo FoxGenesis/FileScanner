@@ -35,7 +35,7 @@ import net.foxgenesis.watame.plugin.PluginProperties;
 public class FileScannerPlugin implements IPlugin {
 	public static final int LOUD_VIDEO = 1, MALWARE_DETECTED = 2;
 	public static final Executor SCANNING_POOL = Executors
-			.newFixedThreadPool(ForkJoinPool.getCommonPoolParallelism() + 2);
+			.newCachedThreadPool(/*ForkJoinPool.getCommonPoolParallelism() + 2*/);
 	/**
 	 * Logger
 	 */
@@ -62,14 +62,13 @@ public class FileScannerPlugin implements IPlugin {
 		}
 
 		// Validate our required binaries
-		if(!isFFMPEGInstalled()) {
+		if (!isFFMPEGInstalled()) {
 			logger.error("Failed to find FFMPEG!");
 			return;
-		}
-		else if (!isFFProbeInstalled()) {
+		} else if (!isFFProbeInstalled()) {
 			logger.error("Failed to find FFProbe!");
 			return;
-		} else if(!isQTLibraryValid(qtBinary)) {
+		} else if (!isQTLibraryValid(qtBinary)) {
 			logger.error("Failed to find QuickTime-FastStart binary");
 			return;
 		}
@@ -109,9 +108,11 @@ public class FileScannerPlugin implements IPlugin {
 							}
 						}).thenComposeAsync(in -> scanner.testAttachment(in, msg, attachment)) // scan attachment
 								.exceptionallyAsync(err -> {
-									if (err instanceof AttachmentException)
-										onAttachmentTested(msg, attachment, ((AttachmentException) err).id);
-									else // Error thrown while scanning
+									if (err instanceof CompletionException) {
+										if (err.getCause() instanceof AttachmentException)
+											onAttachmentTested(msg, attachment,
+													((AttachmentException) err.getCause()).id);
+									} else // Error thrown while scanning
 										logger.error("Error while scanning attachment " + attachment, err);
 									return null;
 								});
@@ -149,13 +150,16 @@ public class FileScannerPlugin implements IPlugin {
 	}
 
 	@Override
-	public void postInit(WatameBot bot) {}
+	public void postInit(WatameBot bot) {
+	}
 
 	@Override
-	public void onReady(WatameBot bot) {}
+	public void onReady(WatameBot bot) {
+	}
 
 	@Override
-	public void close() throws Exception {}
+	public void close() throws Exception {
+	}
 
 	private static boolean isFFMPEGInstalled() {
 		Process p = null;
