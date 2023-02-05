@@ -24,6 +24,7 @@ import net.foxgenesis.watame.WatameBot;
 import net.foxgenesis.watame.WatameBot.ProtectedJDABuilder;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentManager;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentScanner.AttachmentException;
+import net.foxgenesis.watame.filescanner.scanner.LoudVideoDetection;
 import net.foxgenesis.watame.filescanner.scanner.MalwareDetection;
 import net.foxgenesis.watame.filescanner.scanner.MalwareType;
 import net.foxgenesis.watame.filescanner.scanner.QuickTimeAttachmentManager;
@@ -83,7 +84,7 @@ public class FileScannerPlugin implements IPlugin {
 		}
 
 		// Create our attachment scanners
-		// scanner.addScanner(new LoudVideoDetection());
+		scanner.addScanner(new LoudVideoDetection());
 		scanner.addScanner(new MalwareDetection());
 	}
 
