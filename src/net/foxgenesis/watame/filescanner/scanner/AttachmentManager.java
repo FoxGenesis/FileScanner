@@ -86,7 +86,6 @@ public class AttachmentManager {
 	 * @return A {@link CompletableFuture} that will complete exceptionally with an
 	 *         {@link AttachmentException} if any {@link AttachmentScanner}
 	 *         completes with one
-	 * @author Ashley
 	 */
 	private CompletableFuture<Void> runScannersAsync(byte[] in, Message msg, Attachment attachment) {
 		CompletableFuture<Void> cf = new CompletableFuture<>();

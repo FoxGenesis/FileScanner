@@ -16,7 +16,9 @@ import net.dv8tion.jda.internal.utils.IOUtil;
 import net.foxgenesis.watame.filescanner.FileScannerPlugin;
 
 /**
- * @author Spaz-Master
+ * Attachment scanner that detects loud videos
+ * 
+ * @author Spaz-Master, Ashley
  *
  */
 public class LoudVideoDetection implements AttachmentScanner {
@@ -52,7 +54,7 @@ public class LoudVideoDetection implements AttachmentScanner {
 		}
 
 		CompletableFuture<Integer> segmentSize = futureSegments.copy().thenApply(List::size);
-		
+
 		// I have no idea if this will actually work ~ Ashley
 		CompletableFuture<Void> out = new CompletableFuture<>() {
 			@Override
