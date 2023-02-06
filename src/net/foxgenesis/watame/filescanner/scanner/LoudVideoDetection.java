@@ -16,7 +16,7 @@ import net.dv8tion.jda.internal.utils.IOUtil;
 import net.foxgenesis.watame.filescanner.FileScannerPlugin;
 
 /**
- * Attachment scanner that detects loud videos
+ * Attachment scanner that detects loud videos.
  * 
  * @author Spaz-Master, Ashley
  *
@@ -35,7 +35,7 @@ public class LoudVideoDetection implements AttachmentScanner {
 	private static final Logger logger = LoggerFactory.getLogger("LoudVideoDetection");
 
 	/**
-	 * Called by the Testing subscriber-and-publisher
+	 * Called by the Testing subscriber-and-publisher.
 	 * 
 	 * @author Spaz-Master
 	 * @throws CompletionException - if detected a loud video
@@ -111,8 +111,8 @@ public class LoudVideoDetection implements AttachmentScanner {
 	}
 
 	/**
-	 * extracts the data of the average volume in accordance to EBUR 128 standard of
-	 * the attachment
+	 * Extracts the data of the average volume in accordance to EBUR 128 standard of
+	 * the attachment.
 	 * 
 	 * @author Ashley, Spaz-Master
 	 * @param buffer byte array of the attachment
