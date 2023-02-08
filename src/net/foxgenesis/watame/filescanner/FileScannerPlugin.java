@@ -28,6 +28,7 @@ import net.foxgenesis.watame.filescanner.scanner.LoudVideoDetection;
 import net.foxgenesis.watame.filescanner.scanner.MalwareDetection;
 import net.foxgenesis.watame.filescanner.scanner.MalwareType;
 import net.foxgenesis.watame.filescanner.scanner.QuickTimeAttachmentManager;
+import net.foxgenesis.watame.filescanner.scanner.ResolutionScanner;
 import net.foxgenesis.watame.plugin.IPlugin;
 import net.foxgenesis.watame.plugin.PluginProperties;
 import net.foxgenesis.watame.util.DiscordUtils;
@@ -86,6 +87,7 @@ public class FileScannerPlugin implements IPlugin {
 		// Create our attachment scanners
 		scanner.addScanner(new LoudVideoDetection());
 		scanner.addScanner(new MalwareDetection());
+		scanner.addScanner(new ResolutionScanner());
 	}
 
 	@Override
@@ -136,7 +138,7 @@ public class FileScannerPlugin implements IPlugin {
 		});
 	}
 
-	public static final int LOUD_VIDEO = 1, MALWARE_HINT = 2, MALWARE_TEST = 3;
+	public static final int LOUD_VIDEO = 1, MALWARE_HINT = 2, MALWARE_TEST = 3, CRASHER_VIDEO = 4;
 
 	/**
 	 * Called when attachment scanning has returned a result
