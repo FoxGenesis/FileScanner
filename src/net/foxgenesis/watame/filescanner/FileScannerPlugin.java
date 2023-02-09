@@ -20,15 +20,14 @@ import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.RestAction;
 import net.dv8tion.jda.internal.utils.IOUtil;
+import net.foxgenesis.watame.ProtectedJDABuilder;
 import net.foxgenesis.watame.WatameBot;
-import net.foxgenesis.watame.WatameBot.ProtectedJDABuilder;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentManager;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentScanner.AttachmentException;
 import net.foxgenesis.watame.filescanner.scanner.LoudVideoDetection;
 import net.foxgenesis.watame.filescanner.scanner.MalwareDetection;
 import net.foxgenesis.watame.filescanner.scanner.MalwareType;
 import net.foxgenesis.watame.filescanner.scanner.QuickTimeAttachmentManager;
-import net.foxgenesis.watame.filescanner.scanner.ResolutionScanner;
 import net.foxgenesis.watame.plugin.IPlugin;
 import net.foxgenesis.watame.plugin.PluginProperties;
 import net.foxgenesis.watame.util.DiscordUtils;
@@ -37,7 +36,7 @@ import net.foxgenesis.watame.util.DiscordUtils;
  * @author Ashley, Spaz-Master
  *
  */
-@PluginProperties(name = "FileScanner", description = "Plugin used to scan attachments for various types of data", version = "1.0.0")
+@PluginProperties(name = "FileScanner", description = "Plugin used to scan attachments for various types of data", version = "1.0.0", providesCommands = false)
 public class FileScannerPlugin implements IPlugin {
 	/**
 	 * Thread pool for scanning attachments
@@ -87,7 +86,7 @@ public class FileScannerPlugin implements IPlugin {
 		// Create our attachment scanners
 		scanner.addScanner(new LoudVideoDetection());
 		scanner.addScanner(new MalwareDetection());
-		scanner.addScanner(new ResolutionScanner());
+		//scanner.addScanner(new ResolutionScanner());
 	}
 
 	@Override
