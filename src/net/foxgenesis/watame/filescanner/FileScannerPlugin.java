@@ -20,6 +20,7 @@ import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.RestAction;
 import net.dv8tion.jda.internal.utils.IOUtil;
+import net.foxgenesis.config.fields.BooleanField;
 import net.foxgenesis.watame.ProtectedJDABuilder;
 import net.foxgenesis.watame.WatameBot;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentManager;
@@ -30,6 +31,7 @@ import net.foxgenesis.watame.filescanner.scanner.MalwareType;
 import net.foxgenesis.watame.filescanner.scanner.QuickTimeAttachmentManager;
 import net.foxgenesis.watame.plugin.IPlugin;
 import net.foxgenesis.watame.plugin.PluginProperties;
+import net.foxgenesis.watame.plugin.SeverePluginException;
 import net.foxgenesis.watame.util.DiscordUtils;
 
 /**
@@ -41,13 +43,15 @@ public class FileScannerPlugin implements IPlugin {
 	/**
 	 * Thread pool for scanning attachments
 	 */
-	//public static final Executor SCANNING_POOL = Executors.newCachedThreadPool();
+	// public static final Executor SCANNING_POOL = Executors.newCachedThreadPool();
 	public static final Executor SCANNING_POOL = ForkJoinPool.commonPool();
 
 	/**
 	 * Logger
 	 */
 	private static final Logger logger = LoggerFactory.getLogger("FileScanner");
+
+	private static final BooleanField enabled = new BooleanField("filescanner-enabled", guild -> true, true);
 
 	// ===============================================================================================================================
 
@@ -59,13 +63,10 @@ public class FileScannerPlugin implements IPlugin {
 	@Override
 	public void preInit() {
 		// Check if FFMPEG is installed
-		if (!isFFMPEGInstalled()) {
-			logger.error("Failed to find FFMPEG!");
-			return;
-		} else if (!isFFProbeInstalled()) {
-			logger.error("Failed to find FFProbe!");
-			return;
-		}
+		if (!isFFMPEGInstalled())
+			throw new SeverePluginException("Failed to find FFMPEG!");
+		else if (!isFFProbeInstalled())
+			throw new SeverePluginException("Failed to find FFProbe!");
 
 		try {
 			// Find the QuickTime-FastStart binary
@@ -86,7 +87,7 @@ public class FileScannerPlugin implements IPlugin {
 		// Create our attachment scanners
 		scanner.addScanner(new LoudVideoDetection());
 		scanner.addScanner(new MalwareDetection());
-		//scanner.addScanner(new ResolutionScanner());
+		// scanner.addScanner(new ResolutionScanner());
 	}
 
 	@Override
@@ -95,7 +96,7 @@ public class FileScannerPlugin implements IPlugin {
 		builder.addEventListeners(new ListenerAdapter() {
 			@Override
 			public void onMessageReceived(MessageReceivedEvent e) {
-				if (e.isFromGuild()) {
+				if (e.isFromGuild() && enabled.optFrom(e.getGuild())) {
 					Message msg = e.getMessage();
 
 					// Iterate on the attachments
