@@ -3,15 +3,16 @@ package net.foxgenesis.watame.filescanner;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Properties;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Executors;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.commons.configuration2.PropertiesConfiguration;
 
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
+import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.Message.Attachment;
 import net.dv8tion.jda.api.entities.MessageEmbed;
@@ -20,38 +21,39 @@ import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.RestAction;
 import net.dv8tion.jda.internal.utils.IOUtil;
-import net.foxgenesis.config.fields.BooleanField;
+import net.foxgenesis.property.IPropertyField;
 import net.foxgenesis.watame.ProtectedJDABuilder;
 import net.foxgenesis.watame.WatameBot;
+import net.foxgenesis.watame.filescanner.executor.FileScannerThreadFactory;
+import net.foxgenesis.watame.filescanner.scanner.AttachmentException;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentManager;
-import net.foxgenesis.watame.filescanner.scanner.AttachmentScanner.AttachmentException;
 import net.foxgenesis.watame.filescanner.scanner.LoudVideoDetection;
 import net.foxgenesis.watame.filescanner.scanner.MalwareDetection;
 import net.foxgenesis.watame.filescanner.scanner.MalwareType;
 import net.foxgenesis.watame.filescanner.scanner.QuickTimeAttachmentManager;
-import net.foxgenesis.watame.plugin.IPlugin;
-import net.foxgenesis.watame.plugin.PluginProperties;
+import net.foxgenesis.watame.plugin.Plugin;
+import net.foxgenesis.watame.plugin.PluginConfiguration;
 import net.foxgenesis.watame.plugin.SeverePluginException;
+import net.foxgenesis.watame.property.IGuildPropertyMapping;
 import net.foxgenesis.watame.util.DiscordUtils;
 
 /**
  * @author Ashley, Spaz-Master
  *
  */
-@PluginProperties(name = "FileScanner", description = "Plugin used to scan attachments for various types of data", version = "1.0.0", providesCommands = false)
-public class FileScannerPlugin implements IPlugin {
+@PluginConfiguration(defaultFile = "/META-INF/settings.ini", identifier = "settings", outputFile = "settings.ini")
+public class FileScannerPlugin extends Plugin {
 	/**
 	 * Thread pool for scanning attachments
 	 */
-	// public static final Executor SCANNING_POOL = Executors.newCachedThreadPool();
-	public static final Executor SCANNING_POOL = ForkJoinPool.commonPool();
+	public static final Executor SCANNING_POOL = Executors
+			.newCachedThreadPool(new FileScannerThreadFactory("File Scanning"));
 
 	/**
-	 * Logger
+	 * Enabled property
 	 */
-	private static final Logger logger = LoggerFactory.getLogger("FileScanner");
-
-	private static final BooleanField enabled = new BooleanField("filescanner-enabled", guild -> true, true);
+	private static final IPropertyField<String, Guild, IGuildPropertyMapping> enabled = WatameBot.getInstance()
+			.getPropertyProvider().getProperty("filescanner-enabled");
 
 	// ===============================================================================================================================
 
@@ -60,29 +62,47 @@ public class FileScannerPlugin implements IPlugin {
 	 */
 	private AttachmentManager scanner;
 
+	/**
+	 * Is QuickTime-FastStart enabled
+	 */
+	private boolean useQT;
+
 	@Override
-	public void preInit() {
+	protected void onPropertiesLoaded(Properties properties) {}
+
+	@Override
+	protected void onConfigurationLoaded(String identifier, PropertiesConfiguration properties) {
+		switch (identifier) {
+		case "settings" -> { useQT = properties.getBoolean("qt.enabled", true); }
+		}
+	}
+
+	@Override
+	protected void preInit() {
 		// Check if FFMPEG is installed
 		if (!isFFMPEGInstalled())
 			throw new SeverePluginException("Failed to find FFMPEG!");
 		else if (!isFFProbeInstalled())
 			throw new SeverePluginException("Failed to find FFProbe!");
 
-		try {
-			// Find the QuickTime-FastStart binary
-			Path qtBinary = Paths.get("lib", getQTLibraryBySystem(System.getProperty("os.name").toLowerCase()));
-			logger.trace("QuickTime-FastStart path: " + qtBinary);
+		if (useQT)
+			try {
+				// Find the QuickTime-FastStart binary
+				Path qtBinary = Paths.get("lib", getQTLibraryBySystem(System.getProperty("os.name").toLowerCase()));
+				logger.trace("QuickTime-FastStart path: " + qtBinary);
 
-			// Use the QuickTime-FastStart attachment manager if the binary is valid
-			scanner = new QuickTimeAttachmentManager(qtBinary);
+				// Use the QuickTime-FastStart attachment manager if the binary is valid
+				scanner = new QuickTimeAttachmentManager(qtBinary);
 
-		} catch (UnsupportedOperationException | IOException e) {
-			logger.error("Error while getting FastQuickTime library", e);
+			} catch (UnsupportedOperationException | IOException e) {
+				logger.error("Error while getting FastQuickTime library", e);
 
-			// Fallback to default attachment manager
-			logger.warn("Using fallback attachment manager (NO QUICKTIME)!");
+				// Fallback to default attachment manager
+				logger.warn("Using fallback attachment manager (NO QUICKTIME)!");
+				scanner = new AttachmentManager();
+			}
+		else
 			scanner = new AttachmentManager();
-		}
 
 		// Create our attachment scanners
 		scanner.addScanner(new LoudVideoDetection());
@@ -91,17 +111,17 @@ public class FileScannerPlugin implements IPlugin {
 	}
 
 	@Override
-	public void init(ProtectedJDABuilder builder) {
+	protected void init(ProtectedJDABuilder builder) {
 		// Create listener that scans all attachments
 		builder.addEventListeners(new ListenerAdapter() {
 			@Override
 			public void onMessageReceived(MessageReceivedEvent e) {
-				if (e.isFromGuild() && enabled.optFrom(e.getGuild())) {
+				if (e.isFromGuild() && enabled.get(e.getGuild(), true, IGuildPropertyMapping::getAsBoolean)) {
 					Message msg = e.getMessage();
 
 					// Iterate on the attachments
-					for (Attachment attachment : msg.getAttachments()) {
-						logger.trace("Attempting to scan {} ", attachment.getFileName());
+					msg.getAttachments().stream().forEach(attachment -> {
+						logger.debug("Attempting to scan {} ", attachment.getFileName());
 
 						// Stream the data of the attachment
 						attachment.getProxy().download().thenApplyAsync(stream -> {
@@ -115,7 +135,7 @@ public class FileScannerPlugin implements IPlugin {
 							}
 
 							// Pass attachment scanning to the attachment manager
-						}).thenComposeAsync(in -> scanner.testAttachment(in, msg, attachment))
+						}).thenCompose(in -> scanner.testAttachment(in, msg, attachment))
 
 								// Error thrown in attachment scanner
 								.exceptionallyAsync(err -> {
@@ -127,12 +147,12 @@ public class FileScannerPlugin implements IPlugin {
 											return null;
 										}
 									}
+
 									// Error thrown while scanning
 									logger.error("Error while scanning attachment " + attachment.getFileName(), err);
 									return null;
 								});
-
-					}
+					});
 				}
 			}
 		});
@@ -172,13 +192,13 @@ public class FileScannerPlugin implements IPlugin {
 	}
 
 	@Override
-	public void postInit(WatameBot bot) {}
+	protected void postInit(WatameBot bot) {}
 
 	@Override
-	public void onReady(WatameBot bot) {}
+	protected void onReady(WatameBot bot) {}
 
 	@Override
-	public void close() throws Exception {}
+	public void close() {}
 
 	// ===============================================================================================================================
 
@@ -204,7 +224,7 @@ public class FileScannerPlugin implements IPlugin {
 
 	// ===============================================================================================================================
 
-	private static boolean isFFMPEGInstalled() {
+	private boolean isFFMPEGInstalled() {
 		Process p = null;
 		try {
 			p = new ProcessBuilder("ffmpeg", "-version").start();
@@ -219,7 +239,7 @@ public class FileScannerPlugin implements IPlugin {
 		}
 	}
 
-	private static boolean isFFProbeInstalled() {
+	private boolean isFFProbeInstalled() {
 		Process p = null;
 		try {
 			p = new ProcessBuilder("ffprobe", "-version").start();

@@ -1,7 +1,6 @@
 package net.foxgenesis.watame.filescanner.scanner;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -10,7 +9,6 @@ import org.slf4j.LoggerFactory;
 
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.Message.Attachment;
-import net.foxgenesis.watame.filescanner.scanner.AttachmentScanner.AttachmentException;
 
 /**
  * A class used to manage a list of {@link AttachmentScanner AttachmentScanners}
@@ -88,23 +86,7 @@ public class AttachmentManager {
 	 *         completes with one
 	 */
 	private CompletableFuture<Void> runScannersAsync(byte[] in, Message msg, Attachment attachment) {
-		CompletableFuture<Void> cf = new CompletableFuture<>();
-		List<CompletableFuture<Void>> futures = Collections.synchronizedList(new ArrayList<>(scanners.size()));
-
-		this.scanners.stream().map(scanner -> scanner.testAttachment(in, msg, attachment)).forEach(future -> {
-			futures.add(future);
-			future.exceptionallyAsync(err -> {
-				if (err instanceof AttachmentException) {
-					cf.completeExceptionally(err);
-					synchronized (futures) {
-						futures.forEach(f -> f.cancel(true));
-						futures.clear();
-					}
-				}
-				return null;
-			});
-		});
-
-		return cf;
+		return CompletableFuture.allOf(this.scanners.stream().filter(scanner -> scanner.shouldTest(msg, attachment))
+				.map(scanner -> scanner.testAttachment(in, msg, attachment)).toArray(CompletableFuture[]::new));
 	}
 }

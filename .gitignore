@@ -8,3 +8,6 @@ ffplay.exe
 ffprobe.exe
 gifski.exe
 test-deploy-token.txt
+/lib/
+/logs/
+/config/

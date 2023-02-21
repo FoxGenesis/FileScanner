@@ -103,4 +103,7 @@ public class ResolutionScanner implements AttachmentScanner {
 			out[i] = Integer.parseInt(arr[i]);
 		return out;
 	}
+
+	@Override
+	public boolean shouldTest(Message message, Attachment attachment) { return false; }
 }
