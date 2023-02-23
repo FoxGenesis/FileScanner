@@ -20,7 +20,6 @@ import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.RestAction;
-import net.dv8tion.jda.internal.utils.IOUtil;
 import net.foxgenesis.property.IPropertyField;
 import net.foxgenesis.watame.ProtectedJDABuilder;
 import net.foxgenesis.watame.WatameBot;
@@ -125,17 +124,15 @@ public class FileScannerPlugin extends Plugin {
 
 						// Stream the data of the attachment
 						attachment.getProxy().download().thenApplyAsync(stream -> {
-							try {
+							try (stream) {
 								// Read all the bytes in the stream and then close it
 								return stream.readAllBytes();
 							} catch (IOException e1) {
 								throw new CompletionException(e1);
-							} finally {
-								IOUtil.silentClose(stream);
 							}
 
 							// Pass attachment scanning to the attachment manager
-						}).thenCompose(in -> scanner.testAttachment(in, msg, attachment))
+						}, SCANNING_POOL).thenComposeAsync(in -> scanner.testAttachment(in, msg, attachment))
 
 								// Error thrown in attachment scanner
 								.exceptionallyAsync(err -> {

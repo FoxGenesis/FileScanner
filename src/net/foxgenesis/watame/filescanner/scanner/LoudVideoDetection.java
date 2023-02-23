@@ -1,7 +1,10 @@
 package net.foxgenesis.watame.filescanner.scanner;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -50,10 +53,19 @@ public class LoudVideoDetection implements AttachmentScanner {
 	 */
 	@Override
 	public CompletableFuture<Void> testAttachment(byte[] in, Message msg, Attachment attachment) {
-		CompletableFuture<Void> out = new CompletableFuture<>();
-
 		try {
-			getVolumeSegments(in, attachment.getFileName()).thenAcceptAsync(segments -> {
+			long startTime = System.currentTimeMillis();
+
+			CompletableFuture<byte[]> futureData = getFFMPEGData(in);
+
+			futureData.copy()
+					.whenComplete(
+							(data, err) -> logger.debug(
+									"Read all segments of [{}] in %,.2f sec(s)"
+											.formatted((System.currentTimeMillis() - startTime) / 1_000D),
+									attachment.getFileName()));
+
+			return futureData.thenApplyAsync(this::getSegments).thenAcceptAsync(segments -> {
 				int total = segments.size();
 				int strikes = 0;
 				ArrayList<Integer> strikeChunks = new ArrayList<>();
@@ -86,21 +98,14 @@ public class LoudVideoDetection implements AttachmentScanner {
 					// then we triggered loudness detection
 					if ((double) strikeChunk / (double) total >= LOUDNESS_PERCENT) {
 						logger.debug("Detected loud video");
-						out.completeExceptionally(new AttachmentException(FileScannerPlugin.LOUD_VIDEO));
-						return;
+						throw new CompletionException(new AttachmentException(FileScannerPlugin.LOUD_VIDEO));
 					}
 				}
-				out.complete(null);
-			}, FileScannerPlugin.SCANNING_POOL).exceptionally(err -> {
-				out.completeExceptionally(err);
-				return null;
 			});
 		} catch (IOException e) {
 			logger.error("Error while getting segments", e);
 			return CompletableFuture.failedFuture(e);
 		}
-
-		return out;
 	}
 
 	/**
@@ -112,9 +117,55 @@ public class LoudVideoDetection implements AttachmentScanner {
 	 * @return ArrayList of Doubles of read volume average values
 	 * @throws IOException if some kind of processing error occured with FFMPEG
 	 */
+	private CompletableFuture<byte[]> getFFMPEGData(byte[] buffer) throws IOException {
+		ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats", "-i", "-", "-af",
+				"ebur128", "-f", "null", "-");
+
+		Process p = pb.start();
+
+		CompletableFuture<byte[]> futureData = new CompletableFuture<>();
+		futureData.completeAsync(() -> {
+			try (BufferedInputStream in = new BufferedInputStream(p.getErrorStream())) {
+				return in.readAllBytes();
+			} catch (IOException e) {
+				throw new CompletionException(e);
+			}
+		}, FileScannerPlugin.SCANNING_POOL).orTimeout(TIMEOUT_VALUE, TIMEOUT_UNIT);
+
+		try (BufferedOutputStream out = new BufferedOutputStream(p.getOutputStream())) {
+			out.write(buffer);
+		} catch (IOException e) {
+			p.destroyForcibly();
+			futureData.completeExceptionally(e);
+		}
+
+		return p.onExit().thenCompose(pp -> futureData);
+	}
+
+	private List<Double> getSegments(byte[] in) {
+		return Arrays.stream(new String(in).split("\n")).filter(s -> s.startsWith("[Parsed_ebur128_0")).map(s -> {
+			int start = s.indexOf("M:", EBUR128) + 2;
+			if (start < 2)
+				return Double.NaN;
+			int end = s.indexOf("S:", start);
+
+			String loudStr = s.substring(start, end);
+
+			try {
+				return Double.parseDouble(loudStr);
+			} catch (NumberFormatException ex) {
+				logger.warn("Bad double value " + loudStr + " skipping...");
+				return Double.NaN;
+			}
+		}).filter(d -> d != Double.NaN).toList();
+	}
+
 	private CompletableFuture<List<Double>> getVolumeSegments(byte[] buffer, String filename) throws IOException {
-		Process p = new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats", "-i", "-", "-filter_complex", "ebur128",
-				"-f", "null", "-").start();
+
+		ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats", "-i", "-", "-filter_complex",
+				"ebur128", "-f", "null", "-");
+
+		Process p = pb.start();
 
 		CompletableFuture<List<Double>> cf = CompletableFuture.supplyAsync(() -> {
 			try {
@@ -142,31 +193,32 @@ public class LoudVideoDetection implements AttachmentScanner {
 						.formatted((System.currentTimeMillis() - startTime) / 1_000D), filename);
 				return output;
 			} catch (IOException e) {
-				logger.error("Reading from ffmpeg was interrupted: ", e);
 				throw new CompletionException(e);
 			} finally {
 				IOUtil.silentClose(p.errorReader());
 			}
-		}, FileScannerPlugin.SCANNING_POOL).orTimeout(TIMEOUT_VALUE, TIMEOUT_UNIT).whenComplete((list, err) -> {
-			if (p.isAlive())
-				p.destroy();
-			
-			p.onExit().join();
-			logger.debug("FFMPEG instance for [{}] closed", filename);
-		});
+		}, FileScannerPlugin.SCANNING_POOL);
 
 		try {
 			p.getOutputStream().write(buffer);
 		} catch (IOException ex) {
-			if (!ex.getMessage().equals("Broken pipe"))
-				throw new CompletionException(ex);
 			p.destroyForcibly();
+			cf.completeExceptionally(ex);
 		} finally {
 			p.getOutputStream().flush();
 			p.getOutputStream().close();
 		}
 
-		return cf;
+		return cf.orTimeout(TIMEOUT_VALUE, TIMEOUT_UNIT).whenComplete((list, err) -> {
+			if (p.isAlive())
+				p.destroy();
+
+			p.onExit().join();
+			logger.debug("FFMPEG instance for [{}] closed", filename);
+
+			if (err != null)
+				throw new CompletionException(err);
+		});
 	}
 
 	@Override
