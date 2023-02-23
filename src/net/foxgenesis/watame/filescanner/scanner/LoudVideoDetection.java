@@ -17,7 +17,6 @@ import org.slf4j.LoggerFactory;
 
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.Message.Attachment;
-import net.dv8tion.jda.internal.utils.IOUtil;
 import net.foxgenesis.watame.filescanner.FileScannerPlugin;
 
 /**
@@ -61,7 +60,7 @@ public class LoudVideoDetection implements AttachmentScanner {
 			futureData.copy()
 					.whenComplete(
 							(data, err) -> logger.debug(
-									"Read all segments of [{}] in %,.2f sec(s)"
+									"EBUR128 for [{}] completed in %,.2f sec(s)"
 											.formatted((System.currentTimeMillis() - startTime) / 1_000D),
 									attachment.getFileName()));
 
@@ -158,67 +157,6 @@ public class LoudVideoDetection implements AttachmentScanner {
 				return Double.NaN;
 			}
 		}).filter(d -> d != Double.NaN).toList();
-	}
-
-	private CompletableFuture<List<Double>> getVolumeSegments(byte[] buffer, String filename) throws IOException {
-
-		ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats", "-i", "-", "-filter_complex",
-				"ebur128", "-f", "null", "-");
-
-		Process p = pb.start();
-
-		CompletableFuture<List<Double>> cf = CompletableFuture.supplyAsync(() -> {
-			try {
-				long startTime = System.currentTimeMillis();
-				List<Double> output = new ArrayList<>();
-				String tmp = null;
-
-				while ((tmp = p.errorReader().readLine()) != null) {
-					if (tmp.startsWith("[Parsed_ebur128_0")) {
-						int start = tmp.indexOf("M:", EBUR128) + 2;
-						if (start < 2)
-							continue;
-						int end = tmp.indexOf("S:", start);
-
-						String loudStr = tmp.substring(start, end);
-
-						try {
-							output.add(Double.parseDouble(loudStr));
-						} catch (NumberFormatException ex) {
-							logger.warn("Bad double value " + loudStr + " skipping...");
-						}
-					}
-				}
-				logger.debug("Read all segments of [{}] in %,.2f sec(s)"
-						.formatted((System.currentTimeMillis() - startTime) / 1_000D), filename);
-				return output;
-			} catch (IOException e) {
-				throw new CompletionException(e);
-			} finally {
-				IOUtil.silentClose(p.errorReader());
-			}
-		}, FileScannerPlugin.SCANNING_POOL);
-
-		try {
-			p.getOutputStream().write(buffer);
-		} catch (IOException ex) {
-			p.destroyForcibly();
-			cf.completeExceptionally(ex);
-		} finally {
-			p.getOutputStream().flush();
-			p.getOutputStream().close();
-		}
-
-		return cf.orTimeout(TIMEOUT_VALUE, TIMEOUT_UNIT).whenComplete((list, err) -> {
-			if (p.isAlive())
-				p.destroy();
-
-			p.onExit().join();
-			logger.debug("FFMPEG instance for [{}] closed", filename);
-
-			if (err != null)
-				throw new CompletionException(err);
-		});
 	}
 
 	@Override

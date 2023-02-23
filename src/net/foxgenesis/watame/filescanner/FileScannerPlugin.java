@@ -34,7 +34,6 @@ import net.foxgenesis.watame.plugin.Plugin;
 import net.foxgenesis.watame.plugin.PluginConfiguration;
 import net.foxgenesis.watame.plugin.SeverePluginException;
 import net.foxgenesis.watame.property.IGuildPropertyMapping;
-import net.foxgenesis.watame.util.DiscordUtils;
 
 /**
  * @author Ashley, Spaz-Master
@@ -132,7 +131,7 @@ public class FileScannerPlugin extends Plugin {
 							}
 
 							// Pass attachment scanning to the attachment manager
-						}, SCANNING_POOL).thenComposeAsync(in -> scanner.testAttachment(in, msg, attachment))
+						}).thenComposeAsync(in -> scanner.testAttachment(in, msg, attachment))
 
 								// Error thrown in attachment scanner
 								.exceptionallyAsync(err -> {
@@ -216,7 +215,7 @@ public class FileScannerPlugin extends Plugin {
 	}
 
 	private static boolean canDoInChannel(GuildMessageChannelUnion channel, Permission... permissions) {
-		return DiscordUtils.getBotMember(channel.getGuild()).hasPermission(channel, permissions);
+		return channel.getGuild().getSelfMember().hasPermission(channel, permissions);
 	}
 
 	// ===============================================================================================================================
