@@ -1,4 +1,4 @@
-package net.foxgenesis.watame.filescanner.scanner;
+package net.foxgenesis.watame.filescanner.scanner.scanners;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -9,15 +9,17 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.Message.Attachment;
 import net.foxgenesis.watame.filescanner.FileScannerPlugin;
+import net.foxgenesis.watame.filescanner.scanner.AttachmentData;
+import net.foxgenesis.watame.filescanner.scanner.AttachmentException;
+import net.foxgenesis.watame.filescanner.scanner.AttachmentScanner;
 
 /**
  * Attachment scanner that detects loud videos.
@@ -27,8 +29,8 @@ import net.foxgenesis.watame.filescanner.FileScannerPlugin;
  */
 public class LoudVideoDetection implements AttachmentScanner {
 	private static final double LOUDNESS_PERCENT = 0.2;
-	private static final int TIMEOUT_VALUE = 1;
-	private static final TimeUnit TIMEOUT_UNIT = TimeUnit.MINUTES;
+	private static final int TIMEOUT_VALUE = 15;
+	private static final TimeUnit TIMEOUT_UNIT = TimeUnit.SECONDS;
 	/**
 	 * length of EBUR128 tag in ffmpeg
 	 */
@@ -39,7 +41,7 @@ public class LoudVideoDetection implements AttachmentScanner {
 	private static final Logger logger = LoggerFactory.getLogger("LoudVideoDetection");
 
 	private static final Predicate<String> pattern = Pattern.compile("\\b(loud|ear rape)\\b", Pattern.CASE_INSENSITIVE)
-			.asMatchPredicate();
+			.asPredicate();
 
 	/**
 	 * Called by the Testing subscriber-and-publisher.
@@ -51,7 +53,7 @@ public class LoudVideoDetection implements AttachmentScanner {
 	 * @param attachment - the attachment object of the message to scan
 	 */
 	@Override
-	public CompletableFuture<Void> testAttachment(byte[] in, Message msg, Attachment attachment) {
+	public CompletableFuture<Void> testAttachment(byte[] in, AttachmentData attachment) {
 		try {
 			long startTime = System.currentTimeMillis();
 
@@ -97,7 +99,7 @@ public class LoudVideoDetection implements AttachmentScanner {
 					// then we triggered loudness detection
 					if ((double) strikeChunk / (double) total >= LOUDNESS_PERCENT) {
 						logger.debug("Detected loud video");
-						throw new CompletionException(new AttachmentException(FileScannerPlugin.LOUD_VIDEO));
+						throw new CompletionException(new AttachmentException(FileScannerPlugin.ScanResult.LOUD_VIDEO));
 					}
 				}
 			});
@@ -116,9 +118,9 @@ public class LoudVideoDetection implements AttachmentScanner {
 	 * @return ArrayList of Doubles of read volume average values
 	 * @throws IOException if some kind of processing error occured with FFMPEG
 	 */
-	private CompletableFuture<byte[]> getFFMPEGData(byte[] buffer) throws IOException {
-		ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats", "-i", "-", "-af",
-				"ebur128", "-f", "null", "-");
+	private static CompletableFuture<byte[]> getFFMPEGData(byte[] buffer) throws IOException {
+		ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats", "-i", "-", "-af", "ebur128", "-f",
+				"null", "-");
 
 		Process p = pb.start();
 
@@ -138,7 +140,13 @@ public class LoudVideoDetection implements AttachmentScanner {
 			futureData.completeExceptionally(e);
 		}
 
-		return p.onExit().thenCompose(pp -> futureData);
+		p.onExit().orTimeout(TIMEOUT_VALUE, TIMEOUT_UNIT).exceptionally(err -> {
+			if (err instanceof TimeoutException)
+				p.destroyForcibly();
+			return null;
+		});
+
+		return futureData;
 	}
 
 	private List<Double> getSegments(byte[] in) {
@@ -160,7 +168,8 @@ public class LoudVideoDetection implements AttachmentScanner {
 	}
 
 	@Override
-	public boolean shouldTest(Message message, Attachment attachment) {
-		return attachment.isVideo() && !pattern.test(message.getContentRaw().replaceAll("\\|\\|.*?\\|\\|", ""));
+	public boolean shouldTest(AttachmentData attachment) {
+		return attachment.isVideo()
+				&& !pattern.test(attachment.message.getContentRaw().replaceAll("\\|\\|.*?\\|\\|", ""));
 	}
 }

@@ -2,6 +2,8 @@ package net.foxgenesis.watame.filescanner.scanner;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -9,8 +11,6 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
-import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.Message.Attachment;
 import net.foxgenesis.watame.filescanner.FileScannerPlugin;
 
 /**
@@ -52,13 +52,11 @@ public class QuickTimeAttachmentManager extends AttachmentManager {
 	}
 
 	@Override
-	protected CompletableFuture<byte[]> transformData(byte[] in, Message msg, Attachment attachment) {
+	protected CompletableFuture<byte[]> transformData(byte[] in, AttachmentData attachment) {
 		return (attachment.isVideo() && !attachment.getFileExtension().equals("webm")
 				? CompletableFuture.supplyAsync(() -> formatToQT(in, attachment), FileScannerPlugin.SCANNING_POOL)
 				: CompletableFuture.completedFuture(in));
 	}
-	
-
 
 	/**
 	 * Converts inputed QuickTime files (MOV, MP4) into fast-start format.
@@ -67,17 +65,21 @@ public class QuickTimeAttachmentManager extends AttachmentManager {
 	 * @param input - input data of file to convert to QuickTime fast-start format,
 	 * @return - the newly fast-start format file
 	 */
-	private byte[] formatToQT(byte[] input, Attachment attachment) {
+	private byte[] formatToQT(byte[] input, AttachmentData attachment) {
 		long start = System.currentTimeMillis();
 		Process p = null;
 		try {
-			ProcessBuilder builder = new ProcessBuilder(quickTimeBinaryPath.toString(), "-q");
-			
+			ProcessBuilder builder = new ProcessBuilder(this.quickTimeBinaryPath.toString(), "-q");
+
 			p = builder.start();
-			p.getOutputStream().write(input);
-			p.getOutputStream().flush();
-			p.getOutputStream().close();
-			input = p.getInputStream().readAllBytes();
+			try (OutputStream out = p.getOutputStream()) {
+				out.write(input);
+				out.flush();
+			}
+
+			try (InputStream in = p.getInputStream()) {
+				input = in.readAllBytes();
+			}
 		} catch (IOException e) {
 			logger.error("Failed to start Qt-FastStart binary: ", e);
 			throw new CompletionException(e);
@@ -86,7 +88,8 @@ public class QuickTimeAttachmentManager extends AttachmentManager {
 				p.destroy();
 		}
 
-		logger.debug("Formatted [{}] to QT in %,.2f sec(s)".formatted((System.currentTimeMillis() - start) / 1_000D), attachment.getFileName());
+		logger.debug("Formatted [{}] to QT in %,.2f sec(s)".formatted((System.currentTimeMillis() - start) / 1_000D),
+				attachment.getFileName());
 		return input;
 	}
 
@@ -94,8 +97,10 @@ public class QuickTimeAttachmentManager extends AttachmentManager {
 		Process p = null;
 		try {
 			p = new ProcessBuilder(path.toString(), "-v").start();
-			logger.info("QuickTime-FastStart library version: "
-					+ new String(p.getInputStream().readAllBytes()).split("\n", 2)[0].trim());
+			try (InputStream in = p.getInputStream()) {
+				logger.info("QuickTime-FastStart library version: {}",
+						new String(in.readAllBytes()).split("\n", 2)[0].trim());
+			}
 			return true;
 		} finally {
 			if (p != null)

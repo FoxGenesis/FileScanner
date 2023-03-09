@@ -18,13 +18,14 @@ public class FileScannerThreadFactory implements ThreadFactory {
 		this.daemon = daemon;
 	}
 
+	@Override
 	public Thread newThread(Runnable r) {
-		final Thread thread = new Thread(r, prefix + "-Worker " + count.getAndIncrement());
-		thread.setDaemon(daemon);
+		final Thread thread = new Thread(r, this.prefix + "-Worker " + this.count.getAndIncrement());
+		thread.setDaemon(this.daemon);
 		return thread;
 	}
 
-	public String getPrefix() { return prefix; }
+	public String getPrefix() { return this.prefix; }
 
-	public boolean isDaemon() { return daemon; }
+	public boolean isDaemon() { return this.daemon; }
 }

@@ -1,8 +1,12 @@
 package net.foxgenesis.watame.filescanner;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -14,22 +18,22 @@ import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.Message.Attachment;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.RestAction;
-import net.foxgenesis.property.IPropertyField;
-import net.foxgenesis.watame.ProtectedJDABuilder;
+import net.foxgenesis.property.IProperty;
+import net.foxgenesis.util.StringUtils;
 import net.foxgenesis.watame.WatameBot;
 import net.foxgenesis.watame.filescanner.executor.FileScannerThreadFactory;
+import net.foxgenesis.watame.filescanner.scanner.AttachmentData;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentException;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentManager;
-import net.foxgenesis.watame.filescanner.scanner.LoudVideoDetection;
-import net.foxgenesis.watame.filescanner.scanner.MalwareDetection;
-import net.foxgenesis.watame.filescanner.scanner.MalwareType;
 import net.foxgenesis.watame.filescanner.scanner.QuickTimeAttachmentManager;
+import net.foxgenesis.watame.filescanner.scanner.scanners.LoudVideoDetection;
+import net.foxgenesis.watame.filescanner.scanner.scanners.MalwareDetection;
+import net.foxgenesis.watame.plugin.IEventStore;
 import net.foxgenesis.watame.plugin.Plugin;
 import net.foxgenesis.watame.plugin.PluginConfiguration;
 import net.foxgenesis.watame.plugin.SeverePluginException;
@@ -50,8 +54,8 @@ public class FileScannerPlugin extends Plugin {
 	/**
 	 * Enabled property
 	 */
-	private static final IPropertyField<String, Guild, IGuildPropertyMapping> enabled = WatameBot.getInstance()
-			.getPropertyProvider().getProperty("filescanner-enabled");
+	private static final IProperty<String, Guild, IGuildPropertyMapping> enabled = WatameBot.INSTANCE
+			.getPropertyProvider().getProperty("filescanner_enabled");
 
 	// ===============================================================================================================================
 
@@ -71,7 +75,7 @@ public class FileScannerPlugin extends Plugin {
 	@Override
 	protected void onConfigurationLoaded(String identifier, PropertiesConfiguration properties) {
 		switch (identifier) {
-		case "settings" -> { useQT = properties.getBoolean("qt.enabled", true); }
+		case "settings" -> { this.useQT = properties.getBoolean("qt.enabled", true); }
 		}
 	}
 
@@ -83,55 +87,54 @@ public class FileScannerPlugin extends Plugin {
 		else if (!isFFProbeInstalled())
 			throw new SeverePluginException("Failed to find FFProbe!");
 
-		if (useQT)
+		if (this.useQT)
 			try {
 				// Find the QuickTime-FastStart binary
 				Path qtBinary = Paths.get("lib", getQTLibraryBySystem(System.getProperty("os.name").toLowerCase()));
-				logger.trace("QuickTime-FastStart path: " + qtBinary);
+				this.logger.trace("QuickTime-FastStart path: " + qtBinary);
 
 				// Use the QuickTime-FastStart attachment manager if the binary is valid
-				scanner = new QuickTimeAttachmentManager(qtBinary);
+				this.scanner = new QuickTimeAttachmentManager(qtBinary);
 
 			} catch (UnsupportedOperationException | IOException e) {
-				logger.error("Error while getting FastQuickTime library", e);
+				this.logger.error("Error while getting FastQuickTime library", e);
 
 				// Fallback to default attachment manager
-				logger.warn("Using fallback attachment manager (NO QUICKTIME)!");
-				scanner = new AttachmentManager();
+				this.logger.warn("Using fallback attachment manager (NO QUICKTIME)!");
+				this.scanner = new AttachmentManager();
 			}
 		else
-			scanner = new AttachmentManager();
+			this.scanner = new AttachmentManager();
 
 		// Create our attachment scanners
-		scanner.addScanner(new LoudVideoDetection());
-		scanner.addScanner(new MalwareDetection());
+		this.scanner.addScanner(new LoudVideoDetection());
+		this.scanner.addScanner(new MalwareDetection());
 		// scanner.addScanner(new ResolutionScanner());
 	}
 
 	@Override
-	protected void init(ProtectedJDABuilder builder) {
+	protected void init(IEventStore builder) {
 		// Create listener that scans all attachments
-		builder.addEventListeners(new ListenerAdapter() {
+		builder.registerListeners(this, new ListenerAdapter() {
 			@Override
 			public void onMessageReceived(MessageReceivedEvent e) {
+				// Check if message was found a guild and scanning is enabled
 				if (e.isFromGuild() && enabled.get(e.getGuild(), true, IGuildPropertyMapping::getAsBoolean)) {
 					Message msg = e.getMessage();
 
+					// Collect all attachments
+					List<AttachmentData> attachments = new ArrayList<>();
+					msg.getAttachments().forEach(a -> attachments.add(new AttachmentData(msg, a)));
+					StringUtils.findURLs(msg.getContentStripped())
+							.forEach(u -> attachments.add(new AttachmentData(msg, u)));
+
 					// Iterate on the attachments
-					msg.getAttachments().stream().forEach(attachment -> {
-						logger.debug("Attempting to scan {} ", attachment.getFileName());
-
-						// Stream the data of the attachment
-						attachment.getProxy().download().thenApplyAsync(stream -> {
-							try (stream) {
-								// Read all the bytes in the stream and then close it
-								return stream.readAllBytes();
-							} catch (IOException e1) {
-								throw new CompletionException(e1);
-							}
-
-							// Pass attachment scanning to the attachment manager
-						}).thenComposeAsync(in -> scanner.testAttachment(in, msg, attachment))
+					attachments.stream().forEach(attachment -> {
+						String filename = attachment.getFileName();
+						// Download attachment
+						FileScannerPlugin.this.logger.debug("Attempting to scan {} ", filename);
+						attachment.getData()
+								.thenCompose(in -> FileScannerPlugin.this.scanner.testAttachment(in, attachment))
 
 								// Error thrown in attachment scanner
 								.exceptionallyAsync(err -> {
@@ -139,13 +142,29 @@ public class FileScannerPlugin extends Plugin {
 										// Check if this was the result of a flag from the scanner
 										if (err.getCause() instanceof AttachmentException) {
 											onAttachmentTested(msg, attachment,
-													((AttachmentException) err.getCause()).id);
+													((AttachmentException) err.getCause()).result);
+											return null;
+										}
+
+										// Attachment was not found
+										if (err instanceof FileNotFoundException) {
+											FileScannerPlugin.this.logger
+													.warn("Failed to find attachment [{}]. Skipping...", filename);
+											return null;
+										}
+
+										// HTTP request errors
+										if (err instanceof IOException && err.getMessage()
+												.startsWith("Server returned HTTP response code: 403")) {
+											FileScannerPlugin.this.logger
+													.warn("Failed to open attachment [{}]. Skipping...", filename);
 											return null;
 										}
 									}
 
 									// Error thrown while scanning
-									logger.error("Error while scanning attachment " + attachment.getFileName(), err);
+									FileScannerPlugin.this.logger.error("Error while scanning attachment " + filename,
+											err);
 									return null;
 								});
 					});
@@ -154,7 +173,31 @@ public class FileScannerPlugin extends Plugin {
 		});
 	}
 
-	public static final int LOUD_VIDEO = 1, MALWARE_HINT = 2, MALWARE_TEST = 3, CRASHER_VIDEO = 4;
+	@Override
+	protected void postInit(WatameBot bot) {}
+
+	@Override
+	protected void onReady(WatameBot bot) {}
+
+	@Override
+	public void close() {}
+
+	// ===============================================================================================================================
+
+	public static enum ScanResult {
+		NONE(0), LOUD_VIDEO(1), MALWARE_HINT(2), MALWARE_TEST(3), CRASHER_VIDEO(4);
+
+		public final int id;
+
+		ScanResult(int id) { this.id = id; }
+
+		public static ScanResult fromID(int id) {
+			for (ScanResult result : ScanResult.values())
+				if (result.id == id)
+					return result;
+			return null;
+		}
+	}
 
 	/**
 	 * Called when attachment scanning has returned a result
@@ -163,18 +206,18 @@ public class FileScannerPlugin extends Plugin {
 	 * @param attachment - the attachment that was scanned
 	 * @param status     - scan result
 	 */
-	private void onAttachmentTested(Message message, Attachment attachment, int result) {
+	private void onAttachmentTested(Message message, AttachmentData attachment, ScanResult result) {
 		RestAction<?> action = switch (result) {
 		case LOUD_VIDEO -> {
-			logger.info("Removing attachment {}", attachment.getFileName());
+			this.logger.info("Removing attachment {}", attachment.getFileName());
 			yield message.replyEmbeds(getLoudVideoEmbed(message)).flatMap(
 					m -> canDoInChannel(message.getGuildChannel(), Permission.MESSAGE_MANAGE),
 					m -> message.delete().reason("Loud video"));
 		}
 
 		case MALWARE_HINT, MALWARE_TEST -> {
-			MalwareType type = MalwareType.fromID(result);
-			logger.info("Removing malicious attachment [{}] : {}", type, attachment.getFileName());
+			MalwareType type = MalwareType.fromID(result.id);
+			this.logger.info("Removing malicious attachment [{}] : {}", type, attachment.getFileName());
 
 			yield message.replyEmbeds(getMalwareEmbed(message, type)).flatMap(
 					m -> canDoInChannel(message.getGuildChannel(), Permission.MESSAGE_MANAGE),
@@ -186,15 +229,6 @@ public class FileScannerPlugin extends Plugin {
 		if (action != null)
 			action.queue();
 	}
-
-	@Override
-	protected void postInit(WatameBot bot) {}
-
-	@Override
-	protected void onReady(WatameBot bot) {}
-
-	@Override
-	public void close() {}
 
 	// ===============================================================================================================================
 
@@ -224,10 +258,12 @@ public class FileScannerPlugin extends Plugin {
 		Process p = null;
 		try {
 			p = new ProcessBuilder("ffmpeg", "-version").start();
-			logger.info("FFMPEG version: " + new String(p.getInputStream().readAllBytes()).split("\n", 2)[0].trim());
+			try (InputStream in = p.getInputStream()) {
+				this.logger.info("FFMPEG version: {}", new String(in.readAllBytes()).split("\n", 2)[0].trim());
+			}
 			return true;
 		} catch (Exception e) {
-			logger.error("Error while validating FFMPEG version", e);
+			this.logger.error("Error while validating FFMPEG version", e);
 			return false;
 		} finally {
 			if (p != null)
@@ -239,10 +275,12 @@ public class FileScannerPlugin extends Plugin {
 		Process p = null;
 		try {
 			p = new ProcessBuilder("ffprobe", "-version").start();
-			logger.info("FFProbe version: " + new String(p.getInputStream().readAllBytes()).split("\n", 2)[0].trim());
+			try (InputStream in = p.getInputStream()) {
+				this.logger.info("FFProbe version: " + new String(in.readAllBytes()).split("\n", 2)[0].trim());
+			}
 			return true;
 		} catch (Exception e) {
-			logger.error("Error while validating FFProbe version", e);
+			this.logger.error("Error while validating FFProbe version", e);
 			return false;
 		} finally {
 			if (p != null)

@@ -1,5 +1,6 @@
 package net.foxgenesis.watame.filescanner.scanner;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -7,7 +8,6 @@ import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.Message.Attachment;
 
 /**
@@ -41,25 +41,26 @@ public class AttachmentManager {
 	 *         {@code scanner} is already added. Otherwise, returns {@code true}.
 	 */
 	public boolean addScanner(AttachmentScanner scanner) {
-		return scanner == null ? false : scanners.contains(scanner) ? false : scanners.add(scanner);
+		return scanner == null ? false : this.scanners.contains(scanner) ? false : this.scanners.add(scanner);
 	}
 
 	/**
 	 * Test an {@link Attachment} with all added {@link AttachmentScanner
 	 * AttachmentScanners} asynchronously.
 	 * 
-	 * @param in         - attachment data
+	 * @param data       - attachment data
 	 * @param msg        - the message this attachment is from
 	 * @param attachment - the attachment to scan
 	 * @return A {@link CompletableFuture} that will complete exceptionally with an
 	 *         {@link AttachmentException} if thrown by any
 	 *         {@link AttachmentScanner}
+	 * @throws IOException
 	 */
-	public CompletableFuture<Void> testAttachment(byte[] in, Message msg, Attachment attachment) {
-		return (in == null || in.length == 0)
+	public CompletableFuture<Void> testAttachment(byte[] data, AttachmentData attachment) {
+		return (data == null || data.length == 0)
 				? CompletableFuture.failedFuture(new NullPointerException("Attachment data was null"))
-				: transformData(in, msg, attachment)
-						.thenComposeAsync(newData -> runScannersAsync(newData, msg, attachment));
+				: CompletableFuture.completedFuture(data).thenComposeAsync(in -> transformData(in, attachment))
+						.thenComposeAsync(newData -> runScannersAsync(newData, attachment));
 	}
 
 	/**
@@ -70,7 +71,8 @@ public class AttachmentManager {
 	 * @param attachment - he attachment to scan
 	 * @return A {@link CompletableFuture} that will transform the attachment data
 	 */
-	protected CompletableFuture<byte[]> transformData(byte[] in, Message msg, Attachment attachment) {
+	@SuppressWarnings("static-method")
+	protected CompletableFuture<byte[]> transformData(byte[] in, AttachmentData attachment) {
 		return CompletableFuture.completedFuture(in);
 	}
 
@@ -85,8 +87,8 @@ public class AttachmentManager {
 	 *         {@link AttachmentException} if any {@link AttachmentScanner}
 	 *         completes with one
 	 */
-	private CompletableFuture<Void> runScannersAsync(byte[] in, Message msg, Attachment attachment) {
-		return CompletableFuture.allOf(this.scanners.stream().filter(scanner -> scanner.shouldTest(msg, attachment))
-				.map(scanner -> scanner.testAttachment(in, msg, attachment)).toArray(CompletableFuture[]::new));
+	private CompletableFuture<Void> runScannersAsync(byte[] in, AttachmentData attachment) {
+		return CompletableFuture.allOf(this.scanners.stream().filter(scanner -> scanner.shouldTest(attachment))
+				.map(scanner -> scanner.testAttachment(in, attachment)).toArray(CompletableFuture[]::new));
 	}
 }
