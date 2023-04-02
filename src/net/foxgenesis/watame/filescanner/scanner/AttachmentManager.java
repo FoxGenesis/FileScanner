@@ -3,7 +3,10 @@ package net.foxgenesis.watame.filescanner.scanner;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,9 +32,21 @@ public class AttachmentManager {
 	private final List<AttachmentScanner> scanners = new ArrayList<>();
 
 	/**
+	 * Asynchronous executor
+	 */
+	protected final Executor executor;
+
+	/**
 	 * Create a new instance.
 	 */
-	public AttachmentManager() {}
+	public AttachmentManager() { this(ForkJoinPool.commonPool()); }
+
+	/**
+	 * Create a new instance using the provided {@link Executor}.
+	 * 
+	 * @param executor - the service used to submit asynchronous tasks
+	 */
+	public AttachmentManager(Executor executor) { this.executor = Objects.requireNonNull(executor); }
 
 	/**
 	 * Add an {@link AttachmentScanner} to this manager.
@@ -59,8 +74,9 @@ public class AttachmentManager {
 	public CompletableFuture<Void> testAttachment(byte[] data, AttachmentData attachment) {
 		return (data == null || data.length == 0)
 				? CompletableFuture.failedFuture(new NullPointerException("Attachment data was null"))
-				: CompletableFuture.completedFuture(data).thenComposeAsync(in -> transformData(in, attachment))
-						.thenComposeAsync(newData -> runScannersAsync(newData, attachment));
+				: CompletableFuture.completedFuture(data)
+						.thenComposeAsync(in -> transformData(in, attachment), executor)
+						.thenComposeAsync(newData -> runScannersAsync(newData, attachment), executor);
 	}
 
 	/**
@@ -89,6 +105,6 @@ public class AttachmentManager {
 	 */
 	private CompletableFuture<Void> runScannersAsync(byte[] in, AttachmentData attachment) {
 		return CompletableFuture.allOf(this.scanners.stream().filter(scanner -> scanner.shouldTest(attachment))
-				.map(scanner -> scanner.testAttachment(in, attachment)).toArray(CompletableFuture[]::new));
+				.map(scanner -> scanner.testAttachment(in, attachment, executor)).toArray(CompletableFuture[]::new));
 	}
 }

@@ -9,10 +9,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-import org.apache.commons.configuration2.PropertiesConfiguration;
+import org.apache.commons.configuration2.Configuration;
 
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
@@ -26,12 +27,11 @@ import net.dv8tion.jda.api.requests.RestAction;
 import net.foxgenesis.property.IProperty;
 import net.foxgenesis.util.StringUtils;
 import net.foxgenesis.watame.WatameBot;
-import net.foxgenesis.watame.filescanner.executor.FileScannerThreadFactory;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentData;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentException;
 import net.foxgenesis.watame.filescanner.scanner.AttachmentManager;
 import net.foxgenesis.watame.filescanner.scanner.QuickTimeAttachmentManager;
-import net.foxgenesis.watame.filescanner.scanner.scanners.LoudVideoDetection;
+import net.foxgenesis.watame.filescanner.scanner.scanners.LoudVideoDetectionTest;
 import net.foxgenesis.watame.filescanner.scanner.scanners.MalwareDetection;
 import net.foxgenesis.watame.plugin.IEventStore;
 import net.foxgenesis.watame.plugin.Plugin;
@@ -48,8 +48,7 @@ public class FileScannerPlugin extends Plugin {
 	/**
 	 * Thread pool for scanning attachments
 	 */
-	public static final Executor SCANNING_POOL = Executors
-			.newCachedThreadPool(new FileScannerThreadFactory("File Scanning"));
+	public static final ExecutorService SCANNING_POOL = Executors.newWorkStealingPool();
 
 	/**
 	 * Enabled property
@@ -73,7 +72,7 @@ public class FileScannerPlugin extends Plugin {
 	protected void onPropertiesLoaded(Properties properties) {}
 
 	@Override
-	protected void onConfigurationLoaded(String identifier, PropertiesConfiguration properties) {
+	protected void onConfigurationLoaded(String identifier, Configuration properties) {
 		switch (identifier) {
 		case "settings" -> { this.useQT = properties.getBoolean("qt.enabled", true); }
 		}
@@ -94,7 +93,7 @@ public class FileScannerPlugin extends Plugin {
 				this.logger.trace("QuickTime-FastStart path: " + qtBinary);
 
 				// Use the QuickTime-FastStart attachment manager if the binary is valid
-				this.scanner = new QuickTimeAttachmentManager(qtBinary);
+				this.scanner = new QuickTimeAttachmentManager(qtBinary, SCANNING_POOL);
 
 			} catch (UnsupportedOperationException | IOException e) {
 				this.logger.error("Error while getting FastQuickTime library", e);
@@ -104,10 +103,10 @@ public class FileScannerPlugin extends Plugin {
 				this.scanner = new AttachmentManager();
 			}
 		else
-			this.scanner = new AttachmentManager();
+			this.scanner = new AttachmentManager(SCANNING_POOL);
 
 		// Create our attachment scanners
-		this.scanner.addScanner(new LoudVideoDetection());
+		this.scanner.addScanner(new LoudVideoDetectionTest());
 		this.scanner.addScanner(new MalwareDetection());
 		// scanner.addScanner(new ResolutionScanner());
 	}
@@ -125,7 +124,7 @@ public class FileScannerPlugin extends Plugin {
 					// Collect all attachments
 					List<AttachmentData> attachments = new ArrayList<>();
 					msg.getAttachments().forEach(a -> attachments.add(new AttachmentData(msg, a)));
-					StringUtils.findURLs(msg.getContentStripped())
+					StringUtils.findURLs(msg.getContentRaw())
 							.forEach(u -> attachments.add(new AttachmentData(msg, u)));
 
 					// Iterate on the attachments
@@ -133,40 +132,42 @@ public class FileScannerPlugin extends Plugin {
 						String filename = attachment.getFileName();
 						// Download attachment
 						FileScannerPlugin.this.logger.debug("Attempting to scan {} ", filename);
-						attachment.getData()
-								.thenCompose(in -> FileScannerPlugin.this.scanner.testAttachment(in, attachment))
+						attachment.getData(SCANNING_POOL)
+								.thenComposeAsync(in -> scanner.testAttachment(in, attachment), SCANNING_POOL)
 
 								// Error thrown in attachment scanner
 								.exceptionallyAsync(err -> {
 									if (err instanceof CompletionException) {
+										Throwable cause = err.getCause();
+
 										// Check if this was the result of a flag from the scanner
-										if (err.getCause() instanceof AttachmentException) {
+										if (cause instanceof AttachmentException) {
 											onAttachmentTested(msg, attachment,
 													((AttachmentException) err.getCause()).result);
 											return null;
 										}
 
 										// Attachment was not found
-										if (err instanceof FileNotFoundException) {
-											FileScannerPlugin.this.logger
+										if (cause instanceof FileNotFoundException) {
+											logger
 													.warn("Failed to find attachment [{}]. Skipping...", filename);
 											return null;
 										}
 
 										// HTTP request errors
-										if (err instanceof IOException && err.getMessage()
+										if (cause instanceof IOException && err.getMessage()
 												.startsWith("Server returned HTTP response code: 403")) {
-											FileScannerPlugin.this.logger
+											logger
 													.warn("Failed to open attachment [{}]. Skipping...", filename);
 											return null;
 										}
 									}
 
 									// Error thrown while scanning
-									FileScannerPlugin.this.logger.error("Error while scanning attachment " + filename,
+									logger.error("Error while scanning attachment " + filename,
 											err);
 									return null;
-								});
+								}, SCANNING_POOL);
 					});
 				}
 			}
@@ -180,7 +181,17 @@ public class FileScannerPlugin extends Plugin {
 	protected void onReady(WatameBot bot) {}
 
 	@Override
-	public void close() {}
+	protected void close() throws Exception {
+		logger.info("Stopping scanning pool...");
+		
+		int size = SCANNING_POOL.shutdownNow().size();
+		if(size > 0)
+			logger.info("Force stopping {} scanning pool task(s)...", size);
+		
+		if(!SCANNING_POOL.awaitTermination(5, TimeUnit.SECONDS))
+			logger.warn("Timed out waiting for scanning pool shutdown! Continuing...");
+		
+	}
 
 	// ===============================================================================================================================
 

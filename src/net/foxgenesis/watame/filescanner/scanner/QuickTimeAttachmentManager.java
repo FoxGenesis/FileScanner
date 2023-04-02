@@ -10,8 +10,8 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-
-import net.foxgenesis.watame.filescanner.FileScannerPlugin;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 
 /**
  * Class used to transform attachment video data into <em>QuickTime</em> format
@@ -33,11 +33,31 @@ public class QuickTimeAttachmentManager extends AttachmentManager {
 	 * 
 	 * @param qtFastStartBinaryPath - path to the <em>QuickTime-FastStart</em>
 	 *                              binary
+	 * 
 	 * @throws FileNotFoundException    if the provided path does not exist
 	 * @throws IllegalArgumentException if the provided path is a directory or not
 	 *                                  executable
 	 */
 	public QuickTimeAttachmentManager(Path qtFastStartBinaryPath) throws IOException, FileNotFoundException {
+		this(qtFastStartBinaryPath, ForkJoinPool.commonPool());
+	}
+
+	/**
+	 * Create a new instance with the provided <em>QuickTime-FastStart</em> binary
+	 * path and asynchronous task facility.
+	 * 
+	 * @param qtFastStartBinaryPath - path to the <em>QuickTime-FastStart</em>
+	 *                              binary
+	 * @param executor              - asynchronous task executor
+	 * 
+	 * @throws FileNotFoundException    if the provided path does not exist
+	 * @throws IllegalArgumentException if the provided path is a directory or not
+	 *                                  executable
+	 */
+	public QuickTimeAttachmentManager(Path qtFastStartBinaryPath, Executor executor)
+			throws IOException, FileNotFoundException {
+		super(executor);
+
 		// Check if the provided path is valid
 		if (Files.notExists(qtFastStartBinaryPath, LinkOption.NOFOLLOW_LINKS))
 			throw new FileNotFoundException(qtFastStartBinaryPath.toString() + " does not exist!");
@@ -54,7 +74,7 @@ public class QuickTimeAttachmentManager extends AttachmentManager {
 	@Override
 	protected CompletableFuture<byte[]> transformData(byte[] in, AttachmentData attachment) {
 		return (attachment.isVideo() && !attachment.getFileExtension().equals("webm")
-				? CompletableFuture.supplyAsync(() -> formatToQT(in, attachment), FileScannerPlugin.SCANNING_POOL)
+				? CompletableFuture.supplyAsync(() -> formatToQT(in, attachment), executor)
 				: CompletableFuture.completedFuture(in));
 	}
 
@@ -62,7 +82,9 @@ public class QuickTimeAttachmentManager extends AttachmentManager {
 	 * Converts inputed QuickTime files (MOV, MP4) into fast-start format.
 	 * 
 	 * @author Spaz-Master
+	 * 
 	 * @param input - input data of file to convert to QuickTime fast-start format,
+	 * 
 	 * @return - the newly fast-start format file
 	 */
 	private byte[] formatToQT(byte[] input, AttachmentData attachment) {
@@ -72,6 +94,7 @@ public class QuickTimeAttachmentManager extends AttachmentManager {
 			ProcessBuilder builder = new ProcessBuilder(this.quickTimeBinaryPath.toString(), "-q");
 
 			p = builder.start();
+			
 			try (OutputStream out = p.getOutputStream()) {
 				out.write(input);
 				out.flush();
@@ -81,7 +104,6 @@ public class QuickTimeAttachmentManager extends AttachmentManager {
 				input = in.readAllBytes();
 			}
 		} catch (IOException e) {
-			logger.error("Failed to start Qt-FastStart binary: ", e);
 			throw new CompletionException(e);
 		} finally {
 			if (p != null && p.isAlive())

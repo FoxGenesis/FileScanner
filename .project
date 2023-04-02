@@ -23,7 +23,7 @@
 	</natures>
 	<filteredResources>
 		<filter>
-			<id>1676501020133</id>
+			<id>1679961947239</id>
 			<name></name>
 			<type>10</type>
 			<matcher>
@@ -31,21 +31,13 @@
 				<arguments>
 					<matcher>
 						<id>org.eclipse.ui.ide.multiFilter</id>
-						<arguments>1.0-name-matches-false-false-lib</arguments>
-					</matcher>
-					<matcher>
-						<id>org.eclipse.ui.ide.multiFilter</id>
 						<arguments>1.0-name-matches-false-false-logs</arguments>
-					</matcher>
-					<matcher>
-						<id>org.eclipse.ui.ide.multiFilter</id>
-						<arguments>1.0-name-matches-false-false-target</arguments>
 					</matcher>
 				</arguments>
 			</matcher>
 		</filter>
 		<filter>
-			<id>1676501020137</id>
+			<id>1679961947241</id>
 			<name></name>
 			<type>6</type>
 			<matcher>

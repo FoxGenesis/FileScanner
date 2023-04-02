@@ -10,7 +10,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
@@ -28,19 +27,40 @@ import net.foxgenesis.watame.filescanner.scanner.AttachmentScanner;
  * @author Spaz-Master, Ashley
  *
  */
-public class LoudVideoDetection implements AttachmentScanner {
+public class LoudVideoDetectionTest implements AttachmentScanner {
+	/**
+	 * Threshold for strike chunks
+	 */
+	private static final double LOUDNESS_THRESHOLD = -2;
+
+	/**
+	 * Loudness threshold for loud videos
+	 */
 	private static final double LOUDNESS_PERCENT = 0.2;
+
+	/**
+	 * Timeout for FFMPEG
+	 */
 	private static final int TIMEOUT_VALUE = 15;
+
+	/**
+	 * Timeout unit for FFMPEG
+	 */
 	private static final TimeUnit TIMEOUT_UNIT = TimeUnit.SECONDS;
+
 	/**
 	 * length of EBUR128 tag in ffmpeg
 	 */
 	private static final int EBUR128 = 35;
+
 	/**
 	 * Logger
 	 */
-	private static final Logger logger = LoggerFactory.getLogger(LoudVideoDetection.class);
+	private static final Logger logger = LoggerFactory.getLogger(LoudVideoDetectionTest.class);
 
+	/**
+	 * Predicate to skip testing of an attachment
+	 */
 	private static final Predicate<String> pattern = Pattern.compile("\\b(loud|ear rape)\\b", Pattern.CASE_INSENSITIVE)
 			.asPredicate();
 
@@ -60,47 +80,30 @@ public class LoudVideoDetection implements AttachmentScanner {
 		try {
 			long startTime = System.currentTimeMillis();
 
-			return getFFMPEGData(in, executor).thenApplyAsync(this::getSegments, executor).thenAcceptAsync(segments -> {
-				int total = segments.size();
-				int strikes = 0;
-				ArrayList<Integer> strikeChunks = new ArrayList<>();
-				/*
-				 * sometimes a video could have a loud peak for less than a second, possibly due
-				 * to random noise or encoding error. This acts as a sort of "forgiveness meter"
-				 * so that it takes more than a one-time detection of loud audio
-				 */
-				for (double value : segments)
-					if (value > -2) {
-						// if the loudness value is greater than -4.5
-						strikes++;
-					} else if (strikes > 0) {
-						// otherwise, we have gone back to a segment that isnt loud anymore and we can
-						// add a group of loud chunks back into a
-						// strike cache
-						strikeChunks.add(strikes);
-						strikes = 0;
-					}
-				// end for loop
+			CompletableFuture<List<Double>> getSegments = getFFMPEGData(in, executor).thenApplyAsync(this::getSegments,
+					executor);
+			CompletableFuture<Integer> totalSegments = getSegments.thenApplyAsync(List::size, executor);
 
-				if (strikes > 0) {
-					// if video ended with loud strikes, then add those chunks as well
-					strikeChunks.add(strikes);
-				}
+			return getSegments.thenApplyAsync(segments -> getStrikeChunks(segments, LOUDNESS_THRESHOLD), executor)
+					.thenAcceptBothAsync(totalSegments, (strikeChunks, total) -> {
+						for (int strikeChunk : strikeChunks) {
+							// if we have a time period of loudness that is bigger than 1/5th of the total
+							// video,
+							// then we triggered loudness detection
+							if ((double) strikeChunk / (double) total >= LOUDNESS_PERCENT) {
+								logger.debug("Detected loud video {} / {} > {}", strikeChunk, total, LOUDNESS_PERCENT);
+								throw new CompletionException(
+										new AttachmentException(FileScannerPlugin.ScanResult.LOUD_VIDEO));
+							}
+						}
 
-				for (int strikeChunk : strikeChunks) {
-					// if we have a time period of loudness that is bigger than 1/5th of the total
-					// video,
-					// then we triggered loudness detection
-					if ((double) strikeChunk / (double) total >= LOUDNESS_PERCENT) {
-						logger.debug("Detected loud video");
-						throw new CompletionException(new AttachmentException(FileScannerPlugin.ScanResult.LOUD_VIDEO));
-					}
-				}
-			}, executor).whenCompleteAsync((data, err) -> {
-				long end = System.currentTimeMillis();
-				logger.debug("EBUR128 for [{}] completed in %,.2f sec(s)".formatted((end - startTime) / 1_000D),
-						attachment.getFileName());
-			}, executor);
+						long end = System.currentTimeMillis();
+						logger.trace("EBUR128 for [{}]: {} / {} < {}", strikeChunks, total, LOUDNESS_PERCENT);
+						logger.debug(
+								"EBUR128 for [{}] completed in %,.2f sec(s) {} / {} < {}"
+										.formatted((end - startTime) / 1_000D),
+								attachment.getFileName(), strikeChunks, total, LOUDNESS_PERCENT);
+					}, executor);
 		} catch (IOException e) {
 			logger.error("Error while getting segments", e);
 			return CompletableFuture.failedFuture(e);
@@ -133,22 +136,19 @@ public class LoudVideoDetection implements AttachmentScanner {
 			} catch (IOException e) {
 				throw new CompletionException(e);
 			}
-		}, executor).orTimeout(TIMEOUT_VALUE, TIMEOUT_UNIT);
+		}, executor);
 
 		try (BufferedOutputStream out = new BufferedOutputStream(p.getOutputStream())) {
 			out.write(buffer);
 		} catch (IOException e) {
-			p.destroyForcibly();
 			futureData.completeExceptionally(e);
 		}
 
-		p.onExit().orTimeout(TIMEOUT_VALUE, TIMEOUT_UNIT).exceptionallyAsync(err -> {
-			if (err instanceof TimeoutException)
+		return futureData.orTimeout(TIMEOUT_VALUE, TIMEOUT_UNIT).whenCompleteAsync((data, err) -> {
+			if (err != null) {
 				p.destroyForcibly();
-			return null;
+			}
 		}, executor);
-
-		return futureData;
 	}
 
 	/**
@@ -174,6 +174,43 @@ public class LoudVideoDetection implements AttachmentScanner {
 				return Double.NaN;
 			}
 		}).filter(d -> d != Double.NaN).toList();
+	}
+
+	/**
+	 * Convert EBUR 128 segments into chunks of loudness.
+	 * 
+	 * @param segments - EBUR 128 segments
+	 * 
+	 * @return Returns a {@link List} of chunks
+	 */
+	private static List<Integer> getStrikeChunks(List<Double> segments, double threshold) {
+		ArrayList<Integer> strikeChunks = new ArrayList<>();
+		double thresh = -Math.abs(threshold);
+		int strikes = 0;
+		/*
+		 * sometimes a video could have a loud peak for less than a second, possibly due
+		 * to random noise or encoding error. This acts as a sort of "forgiveness meter"
+		 * so that it takes more than a one-time detection of loud audio
+		 */
+		for (double value : segments)
+			if (value > thresh) {
+				// if the loudness value is greater than -4.5
+				strikes++;
+			} else if (strikes > 0) {
+				// otherwise, we have gone back to a segment that isnt loud anymore and we can
+				// add a group of loud chunks back into a
+				// strike cache
+				strikeChunks.add(strikes);
+				strikes = 0;
+			}
+		// end for loop
+
+		if (strikes > 0) {
+			// if video ended with loud strikes, then add those chunks as well
+			strikeChunks.add(strikes);
+		}
+
+		return strikeChunks;
 	}
 
 	@Override
