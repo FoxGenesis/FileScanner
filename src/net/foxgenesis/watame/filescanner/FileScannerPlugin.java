@@ -74,7 +74,7 @@ public class FileScannerPlugin extends Plugin {
 	@Override
 	protected void onConfigurationLoaded(String identifier, Configuration properties) {
 		switch (identifier) {
-		case "settings" -> { this.useQT = properties.getBoolean("qt.enabled", true); }
+			case "settings" -> { this.useQT = properties.getBoolean("qt.enabled", true); }
 		}
 	}
 
@@ -124,14 +124,13 @@ public class FileScannerPlugin extends Plugin {
 					// Collect all attachments
 					List<AttachmentData> attachments = new ArrayList<>();
 					msg.getAttachments().forEach(a -> attachments.add(new AttachmentData(msg, a)));
-					StringUtils.findURLs(msg.getContentRaw())
-							.forEach(u -> attachments.add(new AttachmentData(msg, u)));
+					StringUtils.findURLs(msg.getContentRaw()).forEach(u -> attachments.add(new AttachmentData(msg, u)));
 
 					// Iterate on the attachments
-					attachments.stream().forEach(attachment -> {
+					attachments.stream().filter(scanner::canScan).forEach(attachment -> {
 						String filename = attachment.getFileName();
 						// Download attachment
-						FileScannerPlugin.this.logger.debug("Attempting to scan {} ", filename);
+						FileScannerPlugin.this.logger.debug("Scanning {} ", filename);
 						attachment.getData(SCANNING_POOL)
 								.thenComposeAsync(in -> scanner.testAttachment(in, attachment), SCANNING_POOL)
 
@@ -149,23 +148,20 @@ public class FileScannerPlugin extends Plugin {
 
 										// Attachment was not found
 										if (cause instanceof FileNotFoundException) {
-											logger
-													.warn("Failed to find attachment [{}]. Skipping...", filename);
+											logger.warn("Failed to find attachment [{}]. Skipping...", filename);
 											return null;
 										}
 
 										// HTTP request errors
 										if (cause instanceof IOException && err.getMessage()
-												.startsWith("Server returned HTTP response code: 403")) {
-											logger
-													.warn("Failed to open attachment [{}]. Skipping...", filename);
+												.startsWith("Server returned HTTP response code: ")) {
+											logger.warn("Failed to open attachment [{}]. Skipping...", filename);
 											return null;
 										}
 									}
 
 									// Error thrown while scanning
-									logger.error("Error while scanning attachment " + filename,
-											err);
+									logger.error("Error while scanning attachment " + filename, err);
 									return null;
 								}, SCANNING_POOL);
 					});
@@ -183,14 +179,14 @@ public class FileScannerPlugin extends Plugin {
 	@Override
 	protected void close() throws Exception {
 		logger.info("Stopping scanning pool...");
-		
+
 		int size = SCANNING_POOL.shutdownNow().size();
-		if(size > 0)
+		if (size > 0)
 			logger.info("Force stopping {} scanning pool task(s)...", size);
-		
-		if(!SCANNING_POOL.awaitTermination(5, TimeUnit.SECONDS))
+
+		if (!SCANNING_POOL.awaitTermination(5, TimeUnit.SECONDS))
 			logger.warn("Timed out waiting for scanning pool shutdown! Continuing...");
-		
+
 	}
 
 	// ===============================================================================================================================
@@ -200,7 +196,9 @@ public class FileScannerPlugin extends Plugin {
 
 		public final int id;
 
-		ScanResult(int id) { this.id = id; }
+		ScanResult(int id) {
+			this.id = id;
+		}
 
 		public static ScanResult fromID(int id) {
 			for (ScanResult result : ScanResult.values())
@@ -219,22 +217,30 @@ public class FileScannerPlugin extends Plugin {
 	 */
 	private void onAttachmentTested(Message message, AttachmentData attachment, ScanResult result) {
 		RestAction<?> action = switch (result) {
-		case LOUD_VIDEO -> {
-			this.logger.info("Removing attachment {}", attachment.getFileName());
-			yield message.replyEmbeds(getLoudVideoEmbed(message)).flatMap(
-					m -> canDoInChannel(message.getGuildChannel(), Permission.MESSAGE_MANAGE),
-					m -> message.delete().reason("Loud video"));
-		}
+			case LOUD_VIDEO -> {
+				this.logger.info("Removing attachment {}", attachment.getFileName());
+				yield message.replyEmbeds(getLoudVideoEmbed(message))
+						.flatMap(m -> canDoInChannel(message.getGuildChannel(), Permission.MESSAGE_MANAGE),
+								m -> message.delete().reason("Loud video"))
+						.onErrorMap(err -> {
+							logger.error("Failed to remove attachment " + attachment.getFileName(), err);
+							return null;
+						});
+			}
 
-		case MALWARE_HINT, MALWARE_TEST -> {
-			MalwareType type = MalwareType.fromID(result.id);
-			this.logger.info("Removing malicious attachment [{}] : {}", type, attachment.getFileName());
+			case MALWARE_HINT, MALWARE_TEST -> {
+				MalwareType type = MalwareType.fromID(result.id);
+				this.logger.info("Removing malicious attachment [{}] : {}", type, attachment.getFileName());
 
-			yield message.replyEmbeds(getMalwareEmbed(message, type)).flatMap(
-					m -> canDoInChannel(message.getGuildChannel(), Permission.MESSAGE_MANAGE),
-					m -> message.delete().reason("Malicious attachment"));
-		}
-		default -> throw new IllegalArgumentException("Unexpected value: " + result);
+				yield message.replyEmbeds(getMalwareEmbed(message, type))
+						.flatMap(m -> canDoInChannel(message.getGuildChannel(), Permission.MESSAGE_MANAGE),
+								m -> message.delete().reason("Malicious attachment"))
+						.onErrorMap(err -> {
+							logger.error("Failed to remove attachment " + attachment.getFileName(), err);
+							return null;
+						});
+			}
+			default -> throw new IllegalArgumentException("Unexpected value: " + result);
 		};
 
 		if (action != null)

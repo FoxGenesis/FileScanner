@@ -39,19 +39,24 @@ public class AttachmentManager {
 	/**
 	 * Create a new instance.
 	 */
-	public AttachmentManager() { this(ForkJoinPool.commonPool()); }
+	public AttachmentManager() {
+		this(ForkJoinPool.commonPool());
+	}
 
 	/**
 	 * Create a new instance using the provided {@link Executor}.
 	 * 
 	 * @param executor - the service used to submit asynchronous tasks
 	 */
-	public AttachmentManager(Executor executor) { this.executor = Objects.requireNonNull(executor); }
+	public AttachmentManager(Executor executor) {
+		this.executor = Objects.requireNonNull(executor);
+	}
 
 	/**
 	 * Add an {@link AttachmentScanner} to this manager.
 	 * 
 	 * @param scanner - the scanner to add
+	 * 
 	 * @return Returns {@code false} if the {@code scanner} is {@code null} or the
 	 *         {@code scanner} is already added. Otherwise, returns {@code true}.
 	 */
@@ -66,9 +71,11 @@ public class AttachmentManager {
 	 * @param data       - attachment data
 	 * @param msg        - the message this attachment is from
 	 * @param attachment - the attachment to scan
+	 * 
 	 * @return A {@link CompletableFuture} that will complete exceptionally with an
 	 *         {@link AttachmentException} if thrown by any
 	 *         {@link AttachmentScanner}
+	 * 
 	 * @throws IOException
 	 */
 	public CompletableFuture<Void> testAttachment(byte[] data, AttachmentData attachment) {
@@ -85,6 +92,7 @@ public class AttachmentManager {
 	 * @param in         - attachment data
 	 * @param msg        - the message this attachment is from
 	 * @param attachment - he attachment to scan
+	 * 
 	 * @return A {@link CompletableFuture} that will transform the attachment data
 	 */
 	@SuppressWarnings("static-method")
@@ -99,6 +107,7 @@ public class AttachmentManager {
 	 * @param in         - attachment data
 	 * @param msg        - the message this attachment is from
 	 * @param attachment - the attachment to scan
+	 * 
 	 * @return A {@link CompletableFuture} that will complete exceptionally with an
 	 *         {@link AttachmentException} if any {@link AttachmentScanner}
 	 *         completes with one
@@ -106,5 +115,17 @@ public class AttachmentManager {
 	private CompletableFuture<Void> runScannersAsync(byte[] in, AttachmentData attachment) {
 		return CompletableFuture.allOf(this.scanners.stream().filter(scanner -> scanner.shouldTest(attachment))
 				.map(scanner -> scanner.testAttachment(in, attachment, executor)).toArray(CompletableFuture[]::new));
+	}
+
+	/**
+	 * Check if this manager will scan an attachment.
+	 * 
+	 * @param attachment - {@link AttachmentData} to check
+	 * 
+	 * @return Returns {@code true} if this manager will scan the provided
+	 *         {@link AttachmentData}
+	 */
+	public boolean canScan(AttachmentData attachment) {
+		return this.scanners.stream().anyMatch(scanner -> scanner.shouldTest(attachment));
 	}
 }

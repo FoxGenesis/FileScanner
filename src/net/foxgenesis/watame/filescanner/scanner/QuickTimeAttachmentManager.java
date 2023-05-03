@@ -109,8 +109,8 @@ public class QuickTimeAttachmentManager extends AttachmentManager {
 			if (p != null && p.isAlive())
 				p.destroy();
 		}
-
-		logger.debug("Formatted [{}] to QT in %,.2f sec(s)".formatted((System.currentTimeMillis() - start) / 1_000D),
+		long end = System.currentTimeMillis();
+		logger.debug("Formatted [{}] to QT in %,.2f sec(s)".formatted((end - start) / 1_000D),
 				attachment.getFileName());
 		return input;
 	}
