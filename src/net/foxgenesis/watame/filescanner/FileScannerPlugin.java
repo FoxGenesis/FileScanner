@@ -153,8 +153,8 @@ public class FileScannerPlugin extends Plugin {
 										}
 
 										// HTTP request errors
-										if (cause instanceof IOException && err.getMessage()
-												.startsWith("Server returned HTTP response code: ")) {
+										if (cause instanceof IOException && cause.getMessage()
+												.contains("Server returned HTTP response code: ")) {
 											logger.warn("Failed to open attachment [{}]. Skipping...", filename);
 											return null;
 										}
