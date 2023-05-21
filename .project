@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>PluginTemplate</name>
+	<name>FileScanner</name>
 	<comment></comment>
 	<projects>
 		<project>Watamebot</project>
@@ -23,7 +23,7 @@
 	</natures>
 	<filteredResources>
 		<filter>
-			<id>1679961947239</id>
+			<id>0</id>
 			<name></name>
 			<type>10</type>
 			<matcher>
@@ -37,7 +37,7 @@
 			</matcher>
 		</filter>
 		<filter>
-			<id>1679961947241</id>
+			<id>0</id>
 			<name></name>
 			<type>6</type>
 			<matcher>
