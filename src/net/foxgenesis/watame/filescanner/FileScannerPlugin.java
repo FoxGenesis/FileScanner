@@ -9,6 +9,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
 import java.util.concurrent.SubmissionPublisher;
+import java.util.regex.Pattern;
 
 import org.apache.commons.configuration2.Configuration;
 
@@ -33,7 +34,11 @@ public class FileScannerPlugin extends Plugin {
 	/**
 	 * Thread pool for scanning attachments
 	 */
-	private final ExecutorService executor = Executors.newCachedThreadPool(new PrefixedThreadFactory("Video Scanning"));
+	private static final ExecutorService executor = Executors
+			.newCachedThreadPool(new PrefixedThreadFactory("Video Scanning"));
+
+	private static final Pattern LOUD_MESSAGE_PATTERN = Pattern.compile("\\b(loud|ear rape)\\b",
+			Pattern.CASE_INSENSITIVE);
 	/**
 	 * Enabled property
 	 */
@@ -84,7 +89,12 @@ public class FileScannerPlugin extends Plugin {
 				// Check if message was found a guild and scanning is enabled
 				if (e.isFromGuild() && !(e.getAuthor().isBot() || e.getAuthor().isSystem())
 						&& enabled.get(e.getGuild(), true, IGuildPropertyMapping::getAsBoolean)) {
-					publisher.submit(e.getMessage());
+					Message message = e.getMessage();
+
+					// Check to make sure message isn't declared as loud
+					if (!LOUD_MESSAGE_PATTERN.asPredicate()
+							.test(message.getContentRaw().replaceAll("\\|\\|.*?\\|\\|", "")))
+						publisher.submit(e.getMessage());
 				}
 			}
 		});
