@@ -38,6 +38,9 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 	 */
 	private static final int EBUR128 = 35;
 
+	/**
+	 * Path to the QuickTimeFastStart binary
+	 */
 	private final Path quickTimeBinaryPath;
 
 	/**
@@ -50,7 +53,8 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 	 */
 	private final double loudnessPercent;
 
-	private final ExecutorService singleExecutor = Executors.newCachedThreadPool(new PrefixedThreadFactory("Video Reader"));
+	private final ExecutorService executor = Executors
+			.newCachedThreadPool(new PrefixedThreadFactory("Video Reader"));
 
 	private Subscription subscription;
 
@@ -77,9 +81,10 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 	@Override
 	public void onNext(Message message) {
 		subscription.request(1);
-		attachments: for (AttachmentData data : getAttachments(message)) {
+		for (AttachmentData attachment : getAttachments(message)) {
 			try {
-				logger.debug("Getting EBUR128 for {}", data.getFileName());
+				String attachmentName = attachment.getFileName();
+				logger.debug("Getting EBUR128 for {}", attachmentName);
 				boolean isLoud = false;
 				long startTime = System.currentTimeMillis();
 
@@ -88,9 +93,10 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 						new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats", "-i", "-", "-af", "ebur128", "-f",
 								"null", "-").redirectInput(Redirect.PIPE)));
 
-				try (InputStream in = data.openConnection();
+				try (InputStream in = attachment.openConnection();
 						BufferedReader pErr = pipes.get(pipes.size() - 1).errorReader()) {
 
+					// Asynchronous write thread
 					CompletableFuture<Void> write = CompletableFuture.runAsync(() -> {
 						try (in; OutputStream out = pipes.get(0).getOutputStream()) {
 							in.transferTo(out);
@@ -98,27 +104,33 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 							pipes.forEach(p -> p.destroyForcibly().onExit().join());
 							throw new CompletionException(e);
 						}
-					}, singleExecutor);
+					}, executor);
 
-					isLoud = checkChunkLoudness(
-							getStrikeChunks(pErr.lines().filter(s -> s.startsWith("[Parsed_ebur128_0")).map(s -> {
-								int start = s.indexOf("M:", EBUR128) + 2;
-								if (start < 2)
-									return Double.NaN;
-								int end = s.indexOf("S:", start);
+					List<Double> db = pErr.lines().filter(s -> s.startsWith("[Parsed_ebur128_0")).map(s -> {
+						int start = s.indexOf("M:", EBUR128) + 2;
+						if (start < 2)
+							return Double.NaN;
+						int end = s.indexOf("S:", start);
 
-								String loudStr = s.substring(start, end);
+						String loudStr = s.substring(start, end);
 
-								try {
-									return Double.parseDouble(loudStr);
-								} catch (NumberFormatException ex) {
-									return Double.NaN;
-								}
-							}).filter(d -> d != Double.NaN).toList()));
+						try {
+							return Double.parseDouble(loudStr);
+						} catch (NumberFormatException ex) {
+							return Double.NaN;
+						}
+					}).filter(d -> d != Double.NaN).toList();
+					logger.debug("DB [{}]: {}", attachmentName, db);
+
+					List<Integer> strikeChunks = getStrikeChunks(db);
+					logger.debug("Strike Chunks [{}]: {}", attachmentName, strikeChunks);
+
+					isLoud = checkChunkLoudness(strikeChunks);
+					logger.debug("Is Loud [{}]: {}", attachmentName, isLoud);
 
 					write.join();
 				} catch (IOException e) {
-					logger.error("Error while getting EBUR128 for [" + data.getFileName() + "]", e);
+					logger.error("Error while getting EBUR128 for [" + attachmentName + "]", e);
 					pipes.forEach(p -> p.destroyForcibly().onExit().join());
 				} finally {
 					long end = System.currentTimeMillis();
@@ -128,7 +140,7 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 							p.onExit().join();
 						}
 					});
-					logger.debug("EBUR128 for [{}] completed in {} sec(s)", data.getFileName(),
+					logger.debug("EBUR128 for [{}] completed in {} sec(s)", attachment.getFileName(),
 							"%,.2f".formatted((end - startTime) / 1_000D));
 				}
 
@@ -142,10 +154,10 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 							.queue(v -> logger.info("Removing loud video from {}", message.getAuthor().toString()),
 									error -> logger.error(
 											"Failed to remove message from " + message.getAuthor().toString(), error));
-					break attachments;
+					break;
 				}
 			} catch (Exception e) {
-				logger.error("Error while getting EBUR128 for [" + data.getFileName() + "]", e);
+				logger.error("Error while getting EBUR128 for [" + attachment.getFileName() + "]", e);
 			}
 		}
 	}
@@ -214,7 +226,7 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 
 	@Override
 	public void close() {
-		singleExecutor.shutdown();
+		executor.shutdown();
 	}
 
 	/**
