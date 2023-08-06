@@ -37,6 +37,9 @@ public class FileScannerPlugin extends Plugin {
 	private static final ExecutorService executor = Executors
 			.newCachedThreadPool(new PrefixedThreadFactory("Video Scanning"));
 
+	/**
+	 * Pattern to check if the message is marked as "loud"
+	 */
 	private static final Pattern LOUD_MESSAGE_PATTERN = Pattern.compile("\\b(loud|ear rape)\\b",
 			Pattern.CASE_INSENSITIVE);
 	/**
@@ -47,7 +50,14 @@ public class FileScannerPlugin extends Plugin {
 
 	// ===============================================================================================================================
 
+	/**
+	 * Publisher for attachment scanning
+	 */
 	private SubmissionPublisher<Message> publisher = new SubmissionPublisher<>(executor, Flow.defaultBufferSize());
+
+	/**
+	 * EBUR128 video scanning
+	 */
 	private EBUR128Subscriber subscriber;
 
 	@Override
