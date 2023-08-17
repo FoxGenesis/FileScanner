@@ -168,6 +168,7 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 	 * @param segments - EBUR 128 segments
 	 * 
 	 * @return Returns a {@link List} of chunks
+	 * @author Spazmaster
 	 */
 	private List<Integer> getStrikeChunks(List<Double> segments) {
 		List<Integer> strikeChunks = new ArrayList<>();
