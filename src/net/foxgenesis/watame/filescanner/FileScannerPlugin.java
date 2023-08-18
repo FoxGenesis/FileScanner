@@ -9,6 +9,7 @@ import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.SubmissionPublisher;
 import java.util.regex.Pattern;
 
@@ -19,6 +20,7 @@ import net.foxgenesis.watame.WatameBot;
 import net.foxgenesis.watame.filescanner.tester.EBUR128Subscriber;
 import net.foxgenesis.watame.plugin.IEventStore;
 import net.foxgenesis.watame.plugin.Plugin;
+import net.foxgenesis.watame.plugin.PluginConfiguration;
 import net.foxgenesis.watame.plugin.SeverePluginException;
 import net.foxgenesis.watame.property.PluginProperty;
 
@@ -32,37 +34,56 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
  * @author Ashley, Spaz-Master
  *
  */
+@PluginConfiguration(defaultFile = "/META-INF/configs/settings.properties", identifier = "settings", outputFile = "settings.properties")
 public class FileScannerPlugin extends Plugin {
-	/**
-	 * Thread pool for scanning attachments
-	 */
-	private static final ExecutorService executor = Executors
-			.newCachedThreadPool(new PrefixedThreadFactory("Video Scanning"));
 
 	/**
 	 * Pattern to check if the message is marked as "loud"
 	 */
 	private static final Pattern LOUD_MESSAGE_PATTERN = Pattern.compile("\\b(loud|ear rape)\\b",
 			Pattern.CASE_INSENSITIVE);
-	/**
-	 * Enabled property
-	 */
-	private PluginProperty enabled;
 
 	// ===============================================================================================================================
 
 	/**
 	 * Publisher for attachment scanning
 	 */
-	private SubmissionPublisher<Message> publisher = new SubmissionPublisher<>(executor, Flow.defaultBufferSize());
+	private SubmissionPublisher<Message> publisher;
 
 	/**
 	 * EBUR128 video scanning
 	 */
 	private EBUR128Subscriber subscriber;
 
+	/**
+	 * Thread pool for scanning attachments
+	 */
+	private ExecutorService executor;
+
+	/**
+	 * Enabled property
+	 */
+	private PluginProperty enabled;
+
 	@Override
-	protected void onConstruct(Properties meta, Map<String, Configuration> configs) {}
+	protected void onConstruct(Properties meta, Map<String, Configuration> configs) {
+		boolean commonPool = true;
+		int workers = 2;
+
+		for (String id : configs.keySet()) {
+			Configuration config = configs.get(id);
+			switch (id) {
+				case "settings" -> {
+					commonPool = config.getBoolean("commonPool", true);
+					workers = config.getInt("workerThreads", 2);
+				}
+			}
+		}
+
+		executor = commonPool ? ForkJoinPool.commonPool()
+				: Executors.newFixedThreadPool(workers, new PrefixedThreadFactory("Video Scanning"));
+		publisher = new SubmissionPublisher<>(executor, Flow.defaultBufferSize());
+	}
 
 	@Override
 	protected void preInit() {
@@ -120,7 +141,8 @@ public class FileScannerPlugin extends Plugin {
 	@Override
 	protected void close() throws Exception {
 		logger.info("Stopping scanning pool...");
-		executor.shutdown();
+		if (executor != null && executor != ForkJoinPool.commonPool())
+			executor.shutdown();
 		if (publisher != null)
 			publisher.close();
 		if (subscriber != null)
@@ -166,8 +188,12 @@ public class FileScannerPlugin extends Plugin {
 		try {
 			p = new ProcessBuilder(path.toString(), "-v").start();
 			try (InputStream in = p.getInputStream()) {
-				logger.info("QuickTime-FastStart library version: {}",
-						new String(in.readAllBytes()).split("\n", 2)[0].trim());
+				String version = new String(in.readAllBytes()).split("\n", 2)[0].trim();
+
+				if (version == null || version.isBlank())
+					throw new IOException("Unable to get version");
+
+				logger.info("QuickTime-FastStart library version: {}", version);
 			}
 			return true;
 		} finally {
@@ -178,7 +204,7 @@ public class FileScannerPlugin extends Plugin {
 
 	private static String getQTLibraryBySystem(String system) {
 		if (system.startsWith("linux"))
-			return "qt-faststart-i386";
+			return "qtfs";
 		if (system.startsWith("windows"))
 			return "qt-faststart-x86.exe";
 
