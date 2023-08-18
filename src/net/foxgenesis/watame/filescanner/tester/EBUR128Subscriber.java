@@ -17,6 +17,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow.Subscriber;
 import java.util.concurrent.Flow.Subscription;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
+
+import net.foxgenesis.executor.PrefixedThreadFactory;
+import net.foxgenesis.util.StringUtils;
+import net.foxgenesis.watame.util.Colors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,9 +32,6 @@ import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
-import net.foxgenesis.executor.PrefixedThreadFactory;
-import net.foxgenesis.util.StringUtils;
-import net.foxgenesis.watame.util.Colors;
 
 public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 	private static final Logger logger = LoggerFactory.getLogger("EBUR128");
@@ -53,8 +56,7 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 	 */
 	private final double loudnessPercent;
 
-	private final ExecutorService executor = Executors
-			.newCachedThreadPool(new PrefixedThreadFactory("Video Reader"));
+	private final ExecutorService executor = Executors.newCachedThreadPool(new PrefixedThreadFactory("Video Reader"));
 
 	private Subscription subscription;
 
@@ -90,8 +92,9 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 
 				List<Process> pipes = ProcessBuilder.startPipeline(Arrays.asList(
 						new ProcessBuilder(this.quickTimeBinaryPath.toString(), "-q").redirectOutput(Redirect.PIPE),
-						new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats", "-i", "-", "-af", "ebur128", "-f",
-								"null", "-").redirectInput(Redirect.PIPE)));
+						new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats", "-i", "-", "-af",
+								"ebur128" /*+ "=scale=relative:target=-10"*/, "-f", "null", "-")
+								.redirectInput(Redirect.PIPE)));
 
 				try (InputStream in = attachment.openConnection();
 						BufferedReader pErr = pipes.get(pipes.size() - 1).errorReader()) {
@@ -104,44 +107,41 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 							pipes.forEach(p -> p.destroyForcibly().onExit().join());
 							throw new CompletionException(e);
 						}
-					}, executor);
+					}, executor).orTimeout(15, TimeUnit.SECONDS);
 
-					List<Double> db = pErr.lines().filter(s -> s.startsWith("[Parsed_ebur128_0")).map(s -> {
-						int start = s.indexOf("M:", EBUR128) + 2;
-						if (start < 2)
-							return Double.NaN;
-						int end = s.indexOf("S:", start);
+					// Parse LU values from EBUR128 results
+					List<Double> lu = getLUValues(pErr.lines());
+					// Get the sum of consecutive values greater than the loudness threshold
+					List<Integer> strikeChunks = getStrikeChunks(lu);
+					// Total amount of LU values
+					double total = lu.size();
+					// Get largest loud segment
+					double loudChunkPercent = strikeChunks.stream()
+							// Get the quotient of the chunk value and total LU values
+							.mapToDouble(strikeChunk -> strikeChunk / total)
+							// Get largest quotient
+							.max()
+							// Or 0
+							.orElse(0);
+					// Check if loud chunk spans more than X percent of the video
+					isLoud = loudChunkPercent >= this.loudnessPercent;
 
-						String loudStr = s.substring(start, end);
-
-						try {
-							return Double.parseDouble(loudStr);
-						} catch (NumberFormatException ex) {
-							return Double.NaN;
-						}
-					}).filter(d -> d != Double.NaN).toList();
-					logger.debug("DB [{}]: {}", attachmentName, db);
-
-					List<Integer> strikeChunks = getStrikeChunks(db);
-					logger.debug("Strike Chunks [{}]: {}", attachmentName, strikeChunks);
-
-					isLoud = checkChunkLoudness(strikeChunks);
-					logger.debug("Is Loud [{}]: {}", attachmentName, isLoud);
-
-					write.join();
-				} catch (IOException e) {
-					logger.error("Error while getting EBUR128 for [" + attachmentName + "]", e);
-					pipes.forEach(p -> p.destroyForcibly().onExit().join());
-				} finally {
 					long end = System.currentTimeMillis();
-					pipes.forEach(p -> {
-						if (p.isAlive()) {
-							p.destroy();
-							p.onExit().join();
-						}
-					});
+
+					logger.debug("LU [{}]: {}", attachmentName, lu);
+					logger.debug("Strike Chunks (LU > {}) [{}]: {}", this.loudnessThreshold, attachmentName,
+							strikeChunks);
+					logger.debug("Is Loud [{}]: {} >= {} = {}", attachmentName, loudChunkPercent, this.loudnessPercent,
+							isLoud);
 					logger.debug("EBUR128 for [{}] completed in {} sec(s)", attachment.getFileName(),
 							"%,.2f".formatted((end - startTime) / 1_000D));
+
+					write.join();
+				} finally {
+					pipes.forEach(p -> {
+						if (p.isAlive())
+							p.destroyForcibly().onExit().join();
+					});
 				}
 
 				// If message had loud video, delete message and display error
@@ -160,6 +160,31 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 				logger.error("Error while getting EBUR128 for [" + attachment.getFileName() + "]", e);
 			}
 		}
+
+	}
+
+	/**
+	 * Parse the momentary LU (Loudness Unit) values from FFMPEG EBUR128 output.
+	 * 
+	 * @param stream - stream of FFMPEG output
+	 * 
+	 * @return Returns a {@link List} of LU values
+	 */
+	private static List<Double> getLUValues(Stream<String> stream) {
+		return stream.filter(s -> s.startsWith("[Parsed_ebur128_0")).map(s -> {
+			int start = s.indexOf("M:", EBUR128) + 2;
+			if (start < 2)
+				return Double.NaN;
+			int end = s.indexOf("S:", start);
+
+			String loudStr = s.substring(start, end);
+
+			try {
+				return Double.parseDouble(loudStr);
+			} catch (NumberFormatException ex) {
+				return Double.NaN;
+			}
+		}).filter(d -> !d.equals(Double.NaN)).toList();
 	}
 
 	/**
@@ -168,6 +193,7 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 	 * @param segments - EBUR 128 segments
 	 * 
 	 * @return Returns a {@link List} of chunks
+	 * 
 	 * @author Spazmaster
 	 */
 	private List<Integer> getStrikeChunks(List<Double> segments) {
@@ -197,21 +223,6 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 		}
 
 		return strikeChunks;
-	}
-
-	/**
-	 * Check if the time period of the loudness is bigger than 1/5th of the total
-	 * video.
-	 * 
-	 * @param strikeChunks - EBUR 128 loud chunks
-	 * 
-	 * @return Returns {@code true} if the strike chunks are considered loud
-	 */
-	private boolean checkChunkLoudness(List<Integer> strikeChunks) {
-		double total = strikeChunks.size();
-
-		return strikeChunks.stream().mapToDouble(strikeChunk -> strikeChunk / total)
-				.anyMatch(frac -> frac >= this.loudnessPercent);
 	}
 
 	@Override
