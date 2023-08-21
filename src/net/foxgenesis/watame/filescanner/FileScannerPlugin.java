@@ -4,8 +4,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
@@ -16,6 +14,7 @@ import java.util.regex.Pattern;
 import net.foxgenesis.executor.PrefixedThreadFactory;
 import net.foxgenesis.property.PropertyMapping;
 import net.foxgenesis.property.PropertyType;
+import net.foxgenesis.util.resource.ConfigType;
 import net.foxgenesis.watame.WatameBot;
 import net.foxgenesis.watame.filescanner.tester.EBUR128Subscriber;
 import net.foxgenesis.watame.plugin.IEventStore;
@@ -34,7 +33,7 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
  * @author Ashley, Spaz-Master
  *
  */
-@PluginConfiguration(defaultFile = "/META-INF/configs/settings.properties", identifier = "settings", outputFile = "settings.properties")
+@PluginConfiguration(defaultFile = "/META-INF/configs/settings.properties", identifier = "settings", outputFile = "settings.properties", type = ConfigType.PROPERTIES)
 public class FileScannerPlugin extends Plugin {
 
 	/**
@@ -46,9 +45,14 @@ public class FileScannerPlugin extends Plugin {
 	// ===============================================================================================================================
 
 	/**
+	 * Thread pool for scanning attachments
+	 */
+	private final ExecutorService executor;
+
+	/**
 	 * Publisher for attachment scanning
 	 */
-	private SubmissionPublisher<Message> publisher;
+	private final SubmissionPublisher<Message> publisher;
 
 	/**
 	 * EBUR128 video scanning
@@ -56,22 +60,18 @@ public class FileScannerPlugin extends Plugin {
 	private EBUR128Subscriber subscriber;
 
 	/**
-	 * Thread pool for scanning attachments
-	 */
-	private ExecutorService executor;
-
-	/**
 	 * Enabled property
 	 */
 	private PluginProperty enabled;
 
-	@Override
-	protected void onConstruct(Properties meta, Map<String, Configuration> configs) {
+	public FileScannerPlugin() {
+		super();
+
 		boolean commonPool = true;
 		int workers = 2;
 
-		for (String id : configs.keySet()) {
-			Configuration config = configs.get(id);
+		for (String id : configurationKeySet()) {
+			Configuration config = getConfiguration(id);
 			switch (id) {
 				case "settings" -> {
 					commonPool = config.getBoolean("commonPool", true);

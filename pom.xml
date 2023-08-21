@@ -10,7 +10,7 @@
 		<dependency>
 			<groupId>net.foxgenesis.watame</groupId>
 			<artifactId>watamebot</artifactId>
-			<version>1.1.1</version>
+			<version>1.1.2</version>
 		</dependency>
 	</dependencies>
 	<build>
