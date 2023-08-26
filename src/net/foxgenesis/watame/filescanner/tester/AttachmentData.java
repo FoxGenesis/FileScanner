@@ -1,4 +1,4 @@
-package net.foxgenesis.watame.filescanner.scanner;
+package net.foxgenesis.watame.filescanner.tester;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,22 +32,23 @@ public class AttachmentData {
 	private final boolean isVideo;
 	private final boolean isImage;
 
+	@SuppressWarnings("resource")
 	public AttachmentData(Message message, Attachment attachment) {
-		this.message = Objects.requireNonNull(message);
-		this.attachment = Objects.requireNonNull(attachment);
-		this.url = null;
-
-		fileName = calculateFileName();
-		extension = calculateFileExtension();
-		isVideo = this.attachment != null ? this.attachment.isVideo() : VIDEO_EXTENSIONS.contains(getFileExtension());
-		isImage = isVideo ? false
-				: this.attachment != null ? this.attachment.isImage() : IMAGE_EXTENSIONS.contains(getFileExtension());
+		this(message, Objects.requireNonNull(attachment), null);
 	}
 
 	public AttachmentData(Message message, URL url) {
+		this(message, null, Objects.requireNonNull(url));
+	}
+
+	private AttachmentData(Message message, Attachment attachment, URL url) {
 		this.message = Objects.requireNonNull(message);
-		this.url = Objects.requireNonNull(url);
-		this.attachment = null;
+
+		if (attachment == null && url == null)
+			throw new IllegalArgumentException("No attachment or URL provided!");
+
+		this.url = url;
+		this.attachment = attachment;
 
 		fileName = calculateFileName();
 		extension = calculateFileExtension();
@@ -56,10 +57,12 @@ public class AttachmentData {
 				: this.attachment != null ? this.attachment.isImage() : IMAGE_EXTENSIONS.contains(getFileExtension());
 	}
 
-	public CompletableFuture<byte[]> getData() { return getData(null); }
+	public CompletableFuture<byte[]> getData() {
+		return getData(null);
+	}
 
 	public CompletableFuture<byte[]> getData(Executor executor) {
-		return openConnection().thenApplyAsync(in -> {
+		return openAsyncConnection().thenApplyAsync(in -> {
 			try (in) {
 				return in.readAllBytes();
 			} catch (IOException e) {
@@ -68,13 +71,25 @@ public class AttachmentData {
 		}, executor == null ? ForkJoinPool.commonPool() : executor);
 	}
 
-	public String getFileExtension() { return extension; }
+	public String getFileExtension() {
+		return extension;
+	}
 
-	public String getFileName() { return fileName; }
+	public String getFileName() {
+		return fileName;
+	}
 
-	public boolean isVideo() { return isVideo; }
+	public boolean isVideo() {
+		return isVideo;
+	}
 
-	public boolean isImage() { return isImage; }
+	public boolean isImage() {
+		return isImage;
+	}
+	
+	public Message getMessage() {
+		return message;
+	}
 
 	private String calculateFileName() {
 		if (this.attachment != null)
@@ -103,7 +118,7 @@ public class AttachmentData {
 	}
 
 	@SuppressWarnings("resource")
-	private CompletableFuture<InputStream> openConnection() {
+	public CompletableFuture<InputStream> openAsyncConnection() {
 		if (this.attachment != null)
 			return this.attachment.getProxy().download();
 
@@ -112,6 +127,12 @@ public class AttachmentData {
 		} catch (IOException e) {
 			return CompletableFuture.failedFuture(e);
 		}
+	}
+
+	public InputStream openConnection() throws IOException {
+		if (this.attachment != null)
+			return this.attachment.getProxy().download().join();
+		return this.url.openStream();
 	}
 
 	@Override
