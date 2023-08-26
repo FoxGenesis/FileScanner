@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.EnumSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
@@ -15,12 +16,12 @@ import net.foxgenesis.executor.PrefixedThreadFactory;
 import net.foxgenesis.property.PropertyMapping;
 import net.foxgenesis.property.PropertyType;
 import net.foxgenesis.util.resource.ConfigType;
-import net.foxgenesis.watame.WatameBot;
 import net.foxgenesis.watame.filescanner.tester.EBUR128Subscriber;
 import net.foxgenesis.watame.plugin.IEventStore;
 import net.foxgenesis.watame.plugin.Plugin;
-import net.foxgenesis.watame.plugin.PluginConfiguration;
 import net.foxgenesis.watame.plugin.SeverePluginException;
+import net.foxgenesis.watame.plugin.require.PluginConfiguration;
+import net.foxgenesis.watame.plugin.require.RequiresIntents;
 import net.foxgenesis.watame.property.PluginProperty;
 
 import org.apache.commons.configuration2.Configuration;
@@ -28,13 +29,14 @@ import org.apache.commons.configuration2.Configuration;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.requests.GatewayIntent;
 
 /**
  * @author Ashley, Spaz-Master
  *
  */
 @PluginConfiguration(defaultFile = "/META-INF/configs/settings.properties", identifier = "settings", outputFile = "settings.properties", type = ConfigType.PROPERTIES)
-public class FileScannerPlugin extends Plugin {
+public class FileScannerPlugin extends Plugin implements RequiresIntents {
 
 	/**
 	 * Pattern to check if the message is marked as "loud"
@@ -117,36 +119,45 @@ public class FileScannerPlugin extends Plugin {
 		builder.registerListeners(this, new ListenerAdapter() {
 			@Override
 			public void onMessageReceived(MessageReceivedEvent e) {
-				// Check if message was found a guild and scanning is enabled
-				if (e.isFromGuild() && !(e.getAuthor().isBot() || e.getAuthor().isSystem())
-						&& enabled.get(e.getGuild(), () -> true, PropertyMapping::getAsBoolean)) {
-					Message message = e.getMessage();
+				if (!e.isFromGuild())
+					return;
+				// Do not scan non user messages
+				if (e.getAuthor().isBot() || e.getAuthor().isSystem())
+					return;
+				// Check if we can talk
+				if (!e.getChannel().canTalk())
+					return;
 
-					// Check to make sure message isn't declared as loud
-					if (!LOUD_MESSAGE_PATTERN.asPredicate()
-							.test(message.getContentRaw().replaceAll("\\|\\|.*?\\|\\|", "")))
-						if (!publisher.isClosed())
-							publisher.submit(e.getMessage());
-				}
+				Message message = e.getMessage();
+				// Check if the message is declared as loud
+				if (LOUD_MESSAGE_PATTERN.asPredicate().test(message.getContentRaw().replaceAll("\\|\\|.*?\\|\\|", "")))
+					return;
+
+				// Check if file scanning is enabled
+				if (!enabled.get(e.getGuild(), () -> true, PropertyMapping::getAsBoolean))
+					return;
+
+				if (!publisher.isClosed())
+					publisher.submit(e.getMessage());
 			}
 		});
 	}
 
 	@Override
-	protected void postInit(WatameBot bot) {}
+	protected void postInit() {}
 
 	@Override
-	protected void onReady(WatameBot bot) {}
+	protected void onReady() {}
 
 	@Override
 	protected void close() throws Exception {
 		logger.info("Stopping scanning pool...");
-		if (executor != null && executor != ForkJoinPool.commonPool())
-			executor.shutdown();
 		if (publisher != null)
 			publisher.close();
 		if (subscriber != null)
 			subscriber.close();
+		if (executor != null && executor != ForkJoinPool.commonPool())
+			executor.shutdown();
 	}
 
 	private boolean isFFMPEGInstalled() {
@@ -209,5 +220,10 @@ public class FileScannerPlugin extends Plugin {
 			return "qt-faststart-x86.exe";
 
 		throw new UnsupportedOperationException("[QuickTime-FastStart] Unsupported Operating System: " + system);
+	}
+
+	@Override
+	public EnumSet<GatewayIntent> getRequiredIntents() {
+		return EnumSet.of(GatewayIntent.GUILD_MESSAGES, GatewayIntent.MESSAGE_CONTENT);
 	}
 }
