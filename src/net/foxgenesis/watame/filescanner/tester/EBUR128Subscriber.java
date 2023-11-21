@@ -136,25 +136,26 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 					logger.debug("EBUR128 for [{}] completed in {} sec(s)", attachment.getFileName(),
 							"%,.2f".formatted((end - startTime) / 1_000D));
 
+					// If message had loud video, delete message and display error
+					if (isLoud) {
+						message.replyEmbeds(getLoudVideoEmbed(message, loudChunkPercent, this.loudnessPercent))
+								.flatMap(
+										m -> message.getChannel().canTalk() && canDoInChannel(message.getGuildChannel(),
+												Permission.MESSAGE_MANAGE, Permission.MESSAGE_EMBED_LINKS),
+										m -> message.delete().reason("Loud video"))
+								.queue(v -> logger.info("Removing loud video from {}", message.getAuthor().toString()),
+										error -> logger.error(
+												"Failed to remove message from " + message.getAuthor().toString(),
+												error));
+						break;
+					}
+
 					write.join();
 				} finally {
 					pipes.forEach(p -> {
 						if (p.isAlive())
 							p.destroyForcibly().onExit().join();
 					});
-				}
-
-				// If message had loud video, delete message and display error
-				if (isLoud) {
-					message.replyEmbeds(getLoudVideoEmbed(message))
-							.flatMap(
-									m -> message.getChannel().canTalk() && canDoInChannel(message.getGuildChannel(),
-											Permission.MESSAGE_MANAGE, Permission.MESSAGE_EMBED_LINKS),
-									m -> message.delete().reason("Loud video"))
-							.queue(v -> logger.info("Removing loud video from {}", message.getAuthor().toString()),
-									error -> logger.error(
-											"Failed to remove message from " + message.getAuthor().toString(), error));
-					break;
 				}
 			} catch (Exception e) {
 				logger.error("Error while getting EBUR128 for [" + attachment.getFileName() + "]", e);
@@ -263,12 +264,12 @@ public class EBUR128Subscriber implements Subscriber<Message>, Closeable {
 	 * 
 	 * @return Returns a {@link MessageEmbed} declaring that a video was loud
 	 */
-	private static MessageEmbed getLoudVideoEmbed(Message message) {
+	private static MessageEmbed getLoudVideoEmbed(Message message, double loudness, double max) {
 		return new EmbedBuilder().setColor(Colors.ERROR).setTitle("Loud Video Detected").setDescription(message
 				.getAuthor().getAsMention() + " Please do not post loud videos without first stating that the video is "
 				+ "loud in the message. If you are going to post a loud video, describe in the same message that it is loud.")
 				.setThumbnail("https://www.kindpng.com/picc/m/275-2754352_sony-mdrv6-anime-hd-png-download.png")
-				.build();
+				.setFooter(loudness + " > " + max).build();
 	}
 
 	/**
