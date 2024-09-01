@@ -26,6 +26,7 @@ import net.foxgenesis.watame.property.PluginProperty;
 
 import org.apache.commons.configuration2.Configuration;
 
+import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -124,8 +125,8 @@ public class FileScannerPlugin extends Plugin implements RequiresIntents {
 				// Do not scan non user messages
 				if (e.getAuthor().isBot() || e.getAuthor().isSystem())
 					return;
-				// Check if we can talk
-				if (!e.getChannel().canTalk())
+				// Check if we can talk, send embeds and delete messages
+				if (!(e.getChannel().canTalk() && e.getGuild().getSelfMember().hasPermission(e.getGuildChannel(), Permission.MESSAGE_MANAGE, Permission.MESSAGE_EMBED_LINKS)))
 					return;
 
 				Message message = e.getMessage();
