@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+	xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+	xmlns:sec="https://www.thymeleaf.org/thymeleaf-extras-springsecurity6">
+<head>
+</head>
+<body th:fragment="content">
+	<ul>
+		<li th:each="err : ${#fields.errors('*')}" th:text="${err}" />
+	</ul>
+	<form id="internal" class="needs-validation confirm-save"
+		th:action="@{''}" th:object="${fileScannerConfiguration}" method="post">
+		<!-- 		<select wat:channels="all" th:field="*{loggingChannel}" data-use-icons></select> -->
+		<fieldset id="scanner">
+			<legend class="form-check form-check-reverse form-switch img-link gap-2">
+				<label class="form-check-label text-start" for="voiceChatEnabled">
+					<th:block th:text="#{filescanner.loud.enabled}">Field Title</th:block>
+					<a class="anchor-link" href="#scanner"></a>
+				</label>
+				<input class="form-check-input disable-field" type="checkbox"
+					role="switch" th:field="*{enabled}" data-target="#scanner">
+			</legend>
+			<div class="fieldset-control">
+				<p class="form-control-plaintext" th:text="#{filescanner.loud.description}">Section description</p>
+				<div class="row g-3">
+					<div class="col-md-6">
+						<label for="threshold" class="col-form-label" th:text="#{filescanner.loud.threshold}">Threshold</label>
+						<div class="input-group" th:classappend="${#fields.hasErrors('threshold')} ? has-validation">
+							<input type="number" class="form-control" min="-32" max="10" th:field="*{threshold}" th:classappend="${#fields.hasErrors('threshold')} ? is-invalid" aria-describedby="luIcon" required>
+							<span class="input-group-text" id="luIcon">LU</span>
+							<div class="invalid-feedback" th:errors="*{threshold}"></div>
+						</div>
+						<span class="form-text">
+							<th:block th:text="#{filescanner.loud.threshold.bottom-text}"></th:block>
+							<a title="Wikipedia: EBU R 128" href="https://en.wikipedia.org/wiki/EBU_R_128#Specification" target="_blank" rel="noopener noreferrer" th:text="' ' + #{filescanner.etc.lu}">LU</a></span>
+					</div>
+					<div class="col-md-6">
+						<label for="strikePercentage" class="col-form-label" th:text="#{filescanner.loud.strikePercentage}">Minimum Strike %</label>
+						<div class="input-group" th:classappend="${#fields.hasErrors('strikePercentage')} ? has-validation">
+							<input type="number" class="form-control" min="1" max="100" th:field="*{strikePercentage}" th:classappend="${#fields.hasErrors('strikePercentage')} ? is-invalid" aria-describedby="percentIcon" required>
+							<span class="input-group-text bi bi-percent" id="percentIcon"></span>
+							<div class="invalid-feedback" th:errors="*{strikePercentage}"></div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</fieldset>
+		<div class="clearfix px-3">
+			<button class="btn btn-primary col-12 col-lg-auto float-end"
+				type="submit" th:text="#{web.save}">Save</button>
+		</div>
+	</form>
+</body>
+</html>

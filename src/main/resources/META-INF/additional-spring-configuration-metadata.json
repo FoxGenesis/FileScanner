@@ -1,0 +1,37 @@
+{"properties": [
+  {
+    "name": "filescanner",
+    "type": "net.foxgenesis.filescanner.Config",
+    "description": "Configuration for the FileScanner Watame plugin"
+  },
+  {
+    "name": "filescanner.common-pool",
+    "type": "java.lang.Boolean",
+    "description": "Should the file scanner use the common thread pool (default: true)"
+  },
+  {
+    "name": "filescanner.workers",
+    "type": "java.lang.Integer",
+    "description": "If NOT using the common pool, how many worker threads should be used (default: 2 | max: 10)"
+  },
+  {
+    "name": "filescanner.buffer",
+    "type": "java.lang.Integer",
+    "description": "Buffer for Subscriber/Publisher workers (default: 256)"
+  },
+  {
+    "name": "filescanner.qt-transformer",
+    "type": "java.nio.file.Path",
+    "description": "Path to the QuickTime-FastStart library. (default: windows = qt-faststart-x86.exe | linux = qtfs"
+  },
+  {
+    "name": "filescanner.ffmpeg-path",
+    "type": "java.nio.file.Path",
+    "description": "Path to FFMPEG (default: {working directory}/ffmpeg"
+  },
+  {
+    "name": "filescanner.ffprobe-path",
+    "type": "java.nio.file.Path",
+    "description": "Path to FFProbe (default: {working directory}/ffprobe"
+  }
+]}
