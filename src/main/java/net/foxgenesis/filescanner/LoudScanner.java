@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
+import net.dv8tion.jda.api.requests.RestAction;
 import net.foxgenesis.filescanner.database.FileScannerConfiguration;
 import net.foxgenesis.watame.util.discord.AttachmentData;
 
@@ -25,6 +26,8 @@ public abstract class LoudScanner implements Subscriber<ScannerData> {
 	protected static final Logger logger = LoggerFactory.getLogger(LoudScanner.class);
 
 	protected Subscription subscription;
+
+	private boolean useComponentV2 = true;
 
 	@Override
 	public final void onSubscribe(Subscription subscription) {
@@ -80,12 +83,20 @@ public abstract class LoudScanner implements Subscriber<ScannerData> {
 
 			// If message had loud video, delete message and display error
 			if (isLoud) {
-				message.replyEmbeds(scannerData.getLoudVideoEmbed(loudChunkPercent, percent, threshold))
+				RestAction<Message> action = useComponentV2
+						? message
+								.replyComponents(
+										scannerData.getLoudVideoContainer(loudChunkPercent, percent, threshold))
+								.useComponentsV2()
+						: message.replyEmbeds(scannerData.getLoudVideoEmbed(loudChunkPercent, percent, threshold));
+
+				// Check if we can send embeds
+				action.addCheck(() -> message.getChannel().canTalk()
+						&& canDoInChannel(message.getGuildChannel(), Permission.MESSAGE_EMBED_LINKS))
 						// Map to message deletion
 						.flatMap(
-								// If we can talk, create embeds and delete messages in current channel
-								m -> message.getChannel().canTalk() && canDoInChannel(message.getGuildChannel(),
-										Permission.MESSAGE_MANAGE, Permission.MESSAGE_EMBED_LINKS),
+								// If we can delete messages in current channel
+								m -> canDoInChannel(message.getGuildChannel(), Permission.MESSAGE_MANAGE),
 								// Delete message with localized reason
 								m -> message
 										// Delete
@@ -181,6 +192,10 @@ public abstract class LoudScanner implements Subscriber<ScannerData> {
 	 */
 	private static boolean canDoInChannel(GuildMessageChannelUnion channel, Permission... permissions) {
 		return channel.getGuild().getSelfMember().hasPermission(channel, permissions);
+	}
+
+	public void useComponentV2(boolean state) {
+		this.useComponentV2 = state;
 	}
 
 	@Override

@@ -3,6 +3,7 @@ package net.foxgenesis.filescanner;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.dv8tion.jda.api.components.container.Container;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.foxgenesis.filescanner.database.FileScannerConfiguration;
@@ -10,7 +11,10 @@ import net.foxgenesis.watame.util.StringUtils;
 import net.foxgenesis.watame.util.discord.AttachmentData;
 import net.foxgenesis.watame.util.discord.Colors;
 import net.foxgenesis.watame.util.lang.DiscordLocaleMessageSource;
+import net.foxgenesis.watame.util.lang.Localized;
+import net.foxgenesis.watame.util.lang.LocalizedContainerBuilder;
 import net.foxgenesis.watame.util.lang.LocalizedEmbedBuilder;
+import net.foxgenesis.watame.util.lang.LocalizedSectionBuilder;
 
 public record ScannerData(Message message, FileScannerConfiguration config, DiscordLocaleMessageSource messages) {
 
@@ -47,6 +51,21 @@ public record ScannerData(Message message, FileScannerConfiguration config, Disc
 				message.getAuthor().getAsMention());
 
 		builder.setLocalizedFooter("filescanner.embed.footer", loudness, max, threshold);
+		
+		return builder.build();
+	}
+	
+	public Container getLoudVideoContainer(double loudness, double max, short threshold) {
+		LocalizedContainerBuilder builder = new LocalizedContainerBuilder(messages, messages.getLocaleForGuild(message.getGuild()));
+		builder.setColor(Colors.ERROR);
+		
+		LocalizedSectionBuilder sb = builder.getNewLocalizedSectionBuilder();
+		sb.setThumbnailUrl("https://www.kindpng.com/picc/m/275-2754352_sony-mdrv6-anime-hd-png-download.png");
+		sb.addLocalizedFormattedTextDisplay("## %s", Localized.resolved("filescanner.embed.title"));
+		sb.addLocalizedTextDisplay("filescanner.embed.description", message.getAuthor().getAsMention());
+		sb.addLocalizedFormattedTextDisplay("-# %s", Localized.resolved("filescanner.embed.footer", loudness, max, threshold));
+		
+		builder.addSectionAndClear(sb);
 		
 		return builder.build();
 	}

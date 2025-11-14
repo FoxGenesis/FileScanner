@@ -37,6 +37,8 @@ public class Config implements Validator {
 
 	private Path ffprobePath = Path.of("ffprobe");
 
+	private boolean useComponentV2 = true;
+
 	public boolean isCommonPool() {
 		return commonPool;
 	}
@@ -83,6 +85,14 @@ public class Config implements Validator {
 
 	public void setFfprobePath(Path ffprobePath) {
 		this.ffprobePath = ffprobePath;
+	}
+
+	public boolean isUseComponentV2() {
+		return useComponentV2;
+	}
+
+	public void setUseComponentV2(boolean useComponentV2) {
+		this.useComponentV2 = useComponentV2;
 	}
 
 	@Override
@@ -168,7 +178,7 @@ public class Config implements Validator {
 
 	@Override
 	public int hashCode() {
-		return Objects.hash(buffer, commonPool, ffmpegPath, ffprobePath, qtfs, workers);
+		return Objects.hash(buffer, commonPool, ffmpegPath, ffprobePath, qtfs, useComponentV2, workers);
 	}
 
 	@Override
@@ -182,13 +192,14 @@ public class Config implements Validator {
 		Config other = (Config) obj;
 		return buffer == other.buffer && commonPool == other.commonPool && Objects.equals(ffmpegPath, other.ffmpegPath)
 				&& Objects.equals(ffprobePath, other.ffprobePath) && Objects.equals(qtfs, other.qtfs)
-				&& workers == other.workers;
+				&& useComponentV2 == other.useComponentV2 && workers == other.workers;
 	}
 
 	@Override
 	public String toString() {
-		return "Config [commonPool=" + commonPool + ", workers=" + workers + ", buffer=" + buffer + ", qtTransformer="
-				+ qtfs + ", ffmpegPath=" + ffmpegPath + ", ffprobePath=" + ffprobePath + "]";
+		return "Config [commonPool=" + commonPool + ", workers=" + workers + ", buffer=" + buffer + ", qtfs=" + qtfs
+				+ ", ffmpegPath=" + ffmpegPath + ", ffprobePath=" + ffprobePath + ", useComponentV2=" + useComponentV2
+				+ "]";
 	}
 
 	private static String getQTLibraryBySystem(String system) {

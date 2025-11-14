@@ -38,7 +38,10 @@ public class FileScanner extends ListenerAdapter implements AutoCloseable {
 		this.executor = config.isCommonPool() ? ForkJoinPool.commonPool()
 				: Executors.newFixedThreadPool(config.getWorkers(), new PrefixedThreadFactory("Video Scanning"));
 		this.publisher = new SubmissionPublisher<>(executor, config.getBuffer());
-		publisher.subscribe(new QTFSSubscriber(config.getFfmpegPath(), config.getQtfs()));
+
+		LoudScanner scanner = new QTFSSubscriber(config.getFfmpegPath(), config.getQtfs());
+		scanner.useComponentV2(config.isUseComponentV2());
+		publisher.subscribe(scanner);
 	}
 
 	@Override
@@ -69,11 +72,11 @@ public class FileScanner extends ListenerAdapter implements AutoCloseable {
 	@Override
 	public void close() throws Exception {
 		Logger logger = LoggerFactory.getLogger(getClass());
-		if(!(publisher == null || publisher.isClosed())) {
+		if (!(publisher == null || publisher.isClosed())) {
 			logger.info("Closing LoudVideo publisher");
 			publisher.close();
 		}
-		if(!executor.equals(ForkJoinPool.commonPool())) {
+		if (!executor.equals(ForkJoinPool.commonPool())) {
 			logger.info("Closing LoudVideo executor");
 			executor.shutdown();
 		}
