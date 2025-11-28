@@ -1,4 +1,4 @@
-package net.foxgenesis.filescanner;
+package net.foxgenesis.filescanner.loud;
 
 import java.io.BufferedReader;
 import java.io.Closeable;

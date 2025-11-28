@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Objects;
 import java.util.concurrent.Flow;
 
 import org.hibernate.validator.constraints.Range;
@@ -16,12 +15,18 @@ import org.springframework.validation.ValidationUtils;
 import org.springframework.validation.Validator;
 import org.springframework.validation.annotation.Validated;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
+import lombok.Getter;
+import lombok.Setter;
+import net.foxgenesis.filescanner.cascade.OpenCVProperties;
 
+@Getter
+@Setter
 @Validated
 @ConfigurationProperties(prefix = "filescanner")
 public class Config implements Validator {
-	private final Logger logger = LoggerFactory.getLogger(getClass());
+	private transient final Logger logger = LoggerFactory.getLogger(getClass());
 
 	private boolean commonPool = true;
 
@@ -39,61 +44,8 @@ public class Config implements Validator {
 
 	private boolean useComponentV2 = true;
 
-	public boolean isCommonPool() {
-		return commonPool;
-	}
-
-	public void setCommonPool(boolean commonPool) {
-		this.commonPool = commonPool;
-	}
-
-	public int getWorkers() {
-		return workers;
-	}
-
-	public void setWorkers(int workers) {
-		this.workers = workers;
-	}
-
-	public int getBuffer() {
-		return buffer;
-	}
-
-	public void setBuffer(int buffer) {
-		this.buffer = buffer;
-	}
-
-	public Path getQtfs() {
-		return qtfs;
-	}
-
-	public void setQtfs(Path qtTransformer) {
-		this.qtfs = qtTransformer;
-	}
-
-	public Path getFfmpegPath() {
-		return ffmpegPath;
-	}
-
-	public void setFfmpegPath(Path ffmpegPath) {
-		this.ffmpegPath = ffmpegPath;
-	}
-
-	public Path getFfprobePath() {
-		return ffprobePath;
-	}
-
-	public void setFfprobePath(Path ffprobePath) {
-		this.ffprobePath = ffprobePath;
-	}
-
-	public boolean isUseComponentV2() {
-		return useComponentV2;
-	}
-
-	public void setUseComponentV2(boolean useComponentV2) {
-		this.useComponentV2 = useComponentV2;
-	}
+	@Valid
+	private OpenCVProperties opencv = new OpenCVProperties();
 
 	@Override
 	public boolean supports(Class<?> clazz) {
@@ -174,32 +126,6 @@ public class Config implements Validator {
 			if (p != null)
 				p.destroy();
 		}
-	}
-
-	@Override
-	public int hashCode() {
-		return Objects.hash(buffer, commonPool, ffmpegPath, ffprobePath, qtfs, useComponentV2, workers);
-	}
-
-	@Override
-	public boolean equals(Object obj) {
-		if (this == obj)
-			return true;
-		if (obj == null)
-			return false;
-		if (getClass() != obj.getClass())
-			return false;
-		Config other = (Config) obj;
-		return buffer == other.buffer && commonPool == other.commonPool && Objects.equals(ffmpegPath, other.ffmpegPath)
-				&& Objects.equals(ffprobePath, other.ffprobePath) && Objects.equals(qtfs, other.qtfs)
-				&& useComponentV2 == other.useComponentV2 && workers == other.workers;
-	}
-
-	@Override
-	public String toString() {
-		return "Config [commonPool=" + commonPool + ", workers=" + workers + ", buffer=" + buffer + ", qtfs=" + qtfs
-				+ ", ffmpegPath=" + ffmpegPath + ", ffprobePath=" + ffprobePath + ", useComponentV2=" + useComponentV2
-				+ "]";
 	}
 
 	private static String getQTLibraryBySystem(String system) {

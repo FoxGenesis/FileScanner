@@ -21,6 +21,23 @@
 					role="switch" th:field="*{enabled}" data-target="#scanner">
 			</legend>
 			<div class="fieldset-control">
+				<p class="form-control-plaintext" th:text="#{filescanner.excluded.description}">Section description</p>
+				<div class="input-group" th:classappend="${#fields.hasErrors('excluded')} ? has-validation">
+					<span class="input-group-text me-0 ci ci-text" data-show-tooltip id="excludedTextChannelIcon"></span>
+					<select wat:channels="text,guild_public_thread,guild_private_thread" th:field=*{excluded} aria-describedby="excludedTextChannelIcon excluded" multiple th:classappend="${#fields.hasErrors('excluded')} ? is-invalid"></select>
+					<button id="excludedClearSelection" class="btn btn-secondary-danger bi bi-x-lg clear-selection" type="button" th:title="#{web.clear-selection}" data-target="#excluded"></button>
+					<div class="invalid-feedback"
+							th:errors="*{excluded}"></div>
+				</div>
+			</div>
+			<div class="fieldset-control">
+				<p class="form-control-plaintext" th:text="#{filescanner.stupidMode.description}">Section description</p>
+				<div class="form-switch">
+					<input class="form-check-input" type="checkbox" role="switch" th:field="*{stupidMode}" th:classappend="${#fields.hasErrors('stupidMode')} ? is-invalid">
+					<div class="invalid-feedback" th:errors="*{stupidMode}"></div>
+				</div>
+			</div>
+			<div class="fieldset-control">
 				<p class="form-control-plaintext" th:text="#{filescanner.loud.description}">Section description</p>
 				<div class="row g-3">
 					<div class="col-md-6">

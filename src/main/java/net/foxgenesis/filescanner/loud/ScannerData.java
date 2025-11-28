@@ -1,4 +1,4 @@
-package net.foxgenesis.filescanner;
+package net.foxgenesis.filescanner.loud;
 
 import java.util.ArrayList;
 import java.util.List;

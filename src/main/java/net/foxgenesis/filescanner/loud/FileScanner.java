@@ -1,5 +1,6 @@
-package net.foxgenesis.filescanner;
+package net.foxgenesis.filescanner.loud;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -15,9 +16,12 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.foxgenesis.filescanner.Config;
 import net.foxgenesis.filescanner.database.FileScannerConfiguration;
 import net.foxgenesis.filescanner.database.FileScannerConfigurationService;
 import net.foxgenesis.watame.util.PrefixedThreadFactory;
+import net.foxgenesis.watame.util.discord.AttachmentData;
+import net.foxgenesis.watame.util.discord.DiscordUtils;
 import net.foxgenesis.watame.util.lang.DiscordLocaleMessageSource;
 
 public class FileScanner extends ListenerAdapter implements AutoCloseable {
@@ -30,6 +34,7 @@ public class FileScanner extends ListenerAdapter implements AutoCloseable {
 	private final SubmissionPublisher<ScannerData> publisher;
 	private final ExecutorService executor;
 
+	@SuppressWarnings("resource")
 	public FileScanner(FileScannerConfigurationService service, DiscordLocaleMessageSource messages, Config config) {
 		this.service = Objects.requireNonNull(service);
 		this.messages = Objects.requireNonNull(messages);
@@ -63,10 +68,18 @@ public class FileScanner extends ListenerAdapter implements AutoCloseable {
 		if (LOUD_MESSAGE_PATTERN.asPredicate().test(message.getContentRaw().replaceAll("\\|\\|.*?\\|\\|", "")))
 			return;
 
-		service.get(guild).filter(FileScannerConfiguration::isEnabled).ifPresent(config -> {
-			if (!publisher.isClosed())
-				publisher.submit(new ScannerData(message, config, messages));
-		});
+		service.get(guild)
+				// Check if enabled
+				.filter(FileScannerConfiguration::isEnabled)
+				// If enabled
+				.ifPresent(config -> {
+					List<AttachmentData> attachments = DiscordUtils.getAttachments(e.getMessage(), true);
+					if (attachments.isEmpty())
+						return;
+					attachments.removeIf(data -> !data.isVideo());
+					if (!(attachments.isEmpty() || publisher.isClosed()))
+						publisher.submit(new ScannerData(message, config, messages));
+				});
 	}
 
 	@Override
